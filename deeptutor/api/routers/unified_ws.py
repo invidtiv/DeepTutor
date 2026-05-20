@@ -181,6 +181,9 @@ async def unified_websocket(ws: WebSocket) -> None:
                             "status": active_turn.get("status", "running"),
                         })
                     else:
+                        # Stale turn from a previous process — mark it terminal
+                        # so create_turn won't reject the upcoming start_turn.
+                        await runtime.store.update_turn_status(turn_id, "cancelled", "Stale turn after restart")
                         await safe_send({"type": "active_turn_info", "turn_id": "", "status": "none"})
                 else:
                     await safe_send({"type": "active_turn_info", "turn_id": "", "status": "none"})
