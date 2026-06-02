@@ -138,6 +138,7 @@ const ALLOWED_HTML_TAGS = new Set<string>([
 const HTML_LIKE_TAG_REGEX = /<\/?([A-Za-z][A-Za-z0-9_-]*)\b[^<>]*?\/?>/g;
 const FENCED_CODE_BLOCK_REGEX = /```[\s\S]*?```/g;
 const INLINE_CODE_SPAN_REGEX = /`[^`\n]*`/g;
+const MATH_SPAN_REGEX = /\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$/g;
 const PROTECTED_SPAN_REGEX = /```[\s\S]*?```|`[^`\n]*`/g;
 const PROTECTED_PLACEHOLDER_REGEX = /\u0000PROTECTED_(\d+)\u0000/g;
 const HTML_ATTR_VALUE = /(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+)/.source;
@@ -468,13 +469,16 @@ function linkifyCitationsOutsideCode(content: string): string {
     FENCED_CODE_BLOCK_REGEX,
     "FENCED_CODE",
   );
-  const unwrapped = unwrapBacktickedCitations(fenced.masked);
+  const math = maskProtectedSpans(fenced.masked, MATH_SPAN_REGEX, "MATH");
+  const unwrapped = unwrapBacktickedCitations(math.masked);
   const inline = maskProtectedSpans(
     unwrapped,
     INLINE_CODE_SPAN_REGEX,
     "INLINE_CODE",
   );
-  return fenced.restore(inline.restore(linkifyCitations(inline.masked)));
+  return fenced.restore(
+    math.restore(inline.restore(linkifyCitations(inline.masked))),
+  );
 }
 
 export function normalizeMarkdownForDisplay(content: string): string {

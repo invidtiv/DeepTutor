@@ -73,6 +73,20 @@ test("normalizeMarkdownForDisplay keeps array indexes inside inline code", () =>
   assert.equal(normalizeMarkdownForDisplay(input), input);
 });
 
+test("normalizeMarkdownForDisplay keeps bracketed vectors inside display math", () => {
+  const input = ["The row for `sat` is:", "", "\\[", "[1, 1, 2]", "\\]"].join(
+    "\n",
+  );
+  assert.equal(normalizeMarkdownForDisplay(input), input);
+});
+
+test("normalizeMarkdownForDisplay keeps bracketed vectors inside weighted math", () => {
+  const input = ["\\[", "0.212[1, 1] + 0.212[2, 0] + 0.576[0, 3]", "\\]"].join(
+    "\n",
+  );
+  assert.equal(normalizeMarkdownForDisplay(input), input);
+});
+
 test("normalizeMarkdownForDisplay unwraps explicit citation code spans outside code", () => {
   assert.equal(
     normalizeMarkdownForDisplay("See `[web-1]` for details."),
