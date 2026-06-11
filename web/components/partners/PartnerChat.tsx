@@ -39,6 +39,11 @@ interface ChatMsg {
   error?: boolean;
 }
 
+function resetsVisibleConversation(content: string) {
+  const command = content.trim().split(/\s+/, 1)[0]?.toLowerCase();
+  return command === "/new" || command === "/clear";
+}
+
 export default function PartnerChat({
   partnerId,
   partnerName,
@@ -193,7 +198,11 @@ export default function PartnerChat({
       wsRef.current.send(
         JSON.stringify({ content, session_id: sessionIdRef.current }),
       );
-      setMessages((msgs) => [...msgs, { role: "user", content }]);
+      if (resetsVisibleConversation(content)) {
+        setMessages([]);
+      } else {
+        setMessages((msgs) => [...msgs, { role: "user", content }]);
+      }
       setDraft({ events: [], content: "" });
       setStreaming(true);
       scrollToBottom();

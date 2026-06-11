@@ -82,7 +82,7 @@ class PartnerCommandHandler:
         if not parts:
             return None
 
-        command = parts[0].lower()
+        command = parts[0].lower().split("@", 1)[0]
         args = parts[1:]
         if command == "/help":
             return PartnerCommandResult(build_partner_help_text())

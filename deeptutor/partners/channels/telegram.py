@@ -20,6 +20,7 @@ from deeptutor.partners.channels.base import BaseChannel
 from deeptutor.partners.config.paths import get_media_dir
 from deeptutor.partners.config.schema import Base, DeliveryOverrides, StreamingSupport
 from deeptutor.partners.helpers import split_message
+from deeptutor.services.partners.commands import build_partner_help_text, partner_command_palette
 
 TELEGRAM_MAX_MESSAGE_LEN = 4000  # Telegram message character limit
 TELEGRAM_REPLY_CONTEXT_MAX_LEN = (
@@ -179,12 +180,14 @@ class TelegramChannel(BaseChannel):
     name = "telegram"
     display_name = "Telegram"
 
-    # Commands registered with Telegram's command menu. Only commands the
-    # partner runtime actually handles belong here — the agent loop has no
-    # command router, so anything else would be silently broken UX.
+    # Commands registered with Telegram's command menu. Keep this generated
+    # from the partner command registry so Telegram and Web stay in sync.
     BOT_COMMANDS = [
         BotCommand("start", "Start the bot"),
-        BotCommand("help", "Show available commands"),
+        *[
+            BotCommand(spec["command"].removeprefix("/"), spec["description"])
+            for spec in partner_command_palette()
+        ],
     ]
 
     @classmethod
@@ -264,7 +267,8 @@ class TelegramChannel(BaseChannel):
         self._app.add_handler(CommandHandler("start", self._on_start))
         self._app.add_handler(CommandHandler("help", self._on_help))
 
-        # Add message handler for text, photos, voice, documents
+        # Add message handler for text, photos, voice, documents. Runtime
+        # slash commands like /new must reach the partner command router.
         self._app.add_handler(
             MessageHandler(
                 (
@@ -273,8 +277,7 @@ class TelegramChannel(BaseChannel):
                     | filters.VOICE
                     | filters.AUDIO
                     | filters.Document.ALL
-                )
-                & ~filters.COMMAND,
+                ),
                 self._on_message,
             )
         )
@@ -485,13 +488,7 @@ class TelegramChannel(BaseChannel):
         """Handle /help command, bypassing ACL so all users can access it."""
         if not update.message:
             return
-        await update.message.reply_text(
-            "🐈 TutorBot commands:\n"
-            "/new — Start a new conversation\n"
-            "/stop — Stop the current task\n"
-            "/restart — Restart the bot\n"
-            "/help — Show available commands"
-        )
+        await update.message.reply_text(build_partner_help_text())
 
     @staticmethod
     def _sender_id(user) -> str:

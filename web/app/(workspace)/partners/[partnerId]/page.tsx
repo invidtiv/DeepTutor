@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  Archive,
   Loader2,
   MessageCircle,
   Play,
@@ -30,8 +31,9 @@ import PartnerAvatar from "@/components/partners/PartnerAvatar";
 import PartnerChat from "@/components/partners/PartnerChat";
 import PartnerChannels from "@/components/partners/PartnerChannels";
 import PartnerConfigure from "@/components/partners/PartnerConfigure";
+import PartnerArchives from "@/components/partners/PartnerArchives";
 
-type Tab = "chat" | "configure" | "channels";
+type Tab = "chat" | "configure" | "channels" | "archive";
 
 function PartnerDetail() {
   const params = useParams<{ partnerId: string }>();
@@ -42,7 +44,9 @@ function PartnerDetail() {
 
   const initialTab = (searchParams.get("tab") as Tab) || "chat";
   const [tab, setTab] = useState<Tab>(
-    ["chat", "configure", "channels"].includes(initialTab) ? initialTab : "chat",
+    ["chat", "configure", "channels", "archive"].includes(initialTab)
+      ? initialTab
+      : "chat",
   );
   const [partner, setPartner] = useState<PartnerInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,6 +132,7 @@ function PartnerDetail() {
     { key: "chat", label: t("Chat"), icon: MessageCircle },
     { key: "configure", label: t("Configure"), icon: Settings2 },
     { key: "channels", label: t("Channels"), icon: Radio },
+    { key: "archive", label: t("Archive"), icon: Archive },
   ];
 
   return (
@@ -221,6 +226,10 @@ function PartnerDetail() {
               color={partner.color}
               avatar={partner.avatar}
             />
+          </div>
+        ) : tab === "archive" ? (
+          <div className="mx-auto h-full max-w-5xl overflow-hidden px-5 py-5">
+            <PartnerArchives partnerId={partnerId} onToast={setToast} />
           </div>
         ) : (
           <div className="mx-auto h-full max-w-3xl overflow-y-auto px-5 py-5">

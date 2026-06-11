@@ -320,3 +320,52 @@ class TestContextAssembly:
             "role": "assistant",
             "content": "first reply",
         } in context.conversation_history
+
+
+class TestPartnerCommands:
+    @pytest.mark.asyncio
+    async def test_new_archives_current_session_without_calling_orchestrator(
+        self, partners_root, fake_orchestrator
+    ):
+        fake_orchestrator.script = _finish("first reply")
+        runner = _runner(partners_root)
+        await runner.process_message(_msg("first question"))
+        assert len(fake_orchestrator.seen_contexts) == 1
+
+        reply = await runner.process_message(_msg("/new"))
+
+        assert "Started a new conversation" in reply
+        assert len(fake_orchestrator.seen_contexts) == 1
+        assert runner.store.conversation_history("telegram:42") == []
+        archived = [session for session in runner.store.list_sessions() if session["archived"]]
+        assert len(archived) == 1
+        assert archived[0]["message_count"] == 2
+        assert archived[0]["session_key"].startswith("_archived_")
+
+    @pytest.mark.asyncio
+    async def test_archived_session_does_not_feed_next_turn(
+        self, partners_root, fake_orchestrator
+    ):
+        runner = _runner(partners_root)
+        fake_orchestrator.script = _finish("old reply")
+        await runner.process_message(_msg("old question"))
+        await runner.process_message(_msg("/new"))
+
+        fake_orchestrator.script = _finish("fresh reply")
+        await runner.process_message(_msg("fresh question"))
+
+        context = fake_orchestrator.seen_contexts[-1]
+        assert context.conversation_history == []
+
+    @pytest.mark.asyncio
+    async def test_telegram_bot_command_suffix_is_supported(
+        self, partners_root, fake_orchestrator
+    ):
+        fake_orchestrator.script = _finish("first reply")
+        runner = _runner(partners_root)
+        await runner.process_message(_msg("first question"))
+
+        reply = await runner.process_message(_msg("/new@DeepTutorBot"))
+
+        assert "Started a new conversation" in reply
+        assert len(fake_orchestrator.seen_contexts) == 1

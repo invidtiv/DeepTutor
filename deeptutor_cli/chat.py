@@ -108,7 +108,7 @@ async def _chat_repl(state: ChatState) -> None:
         Panel(
             "[bold]DeepTutor CLI[/]\n"
             "Type a message to chat. Ctrl-C interrupts a running turn. Commands:\n"
-            "  /quit  /session  /new\n"
+            "  /quit  /session  /status  /new  /clear\n"
             "  /regenerate (alias /retry) — re-run the last user message\n"
             "  /tool on|off <name>\n"
             "  /cap <name>\n"
@@ -186,7 +186,10 @@ def _apply_command(raw: str, state: ChatState) -> bool:
     if command == "/session":
         console.print(f"session={state.session_id or '(new)'}")
         return True
-    if command == "/new":
+    if command == "/status":
+        _print_state(state)
+        return True
+    if command in {"/new", "/clear"}:
         state.session_id = None
         console.print("[dim]Started a new chat context.[/]")
         return True
