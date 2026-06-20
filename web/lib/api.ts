@@ -49,7 +49,21 @@ export function parseAuthEnabled(raw: string | undefined): boolean {
   return /^(1|true|yes|on)$/i.test((raw ?? "").trim());
 }
 
-const AUTH_ENABLED = parseAuthEnabled(process.env.DEEPTUTOR_AUTH_ENABLED);
+// Whether auth is enabled, learned at runtime — NOT from a build-time env var.
+// The browser bundle never sees `DEEPTUTOR_AUTH_ENABLED` (it isn't a
+// `NEXT_PUBLIC_` var, so Next.js does not inline it), and auth is a runtime
+// setting that must not be baked at build time anyway. `fetchAuthStatus()` in
+// `web/lib/auth.ts` calls `setRuntimeAuthEnabled()` once the backend reports the
+// real state. Until then it defaults to `false`, so a stray 401 in the default
+// auth-disabled deployment never bounces the user to /login. The server-side
+// gate (web/proxy.ts middleware) enforces auth independently; this flag only
+// drives the client's in-session 401 → /login redirect.
+let runtimeAuthEnabled = false;
+
+/** Record the backend-reported auth state for `apiFetch`'s 401 redirect gate. */
+export function setRuntimeAuthEnabled(enabled: boolean): void {
+  runtimeAuthEnabled = enabled;
+}
 
 /**
  * Authenticated fetch wrapper. Behaves identically to `fetch` but automatically
@@ -69,7 +83,7 @@ export async function apiFetch(
 
   if (
     res.status === 401 &&
-    AUTH_ENABLED &&
+    runtimeAuthEnabled &&
     !skipAuthRedirect &&
     typeof window !== "undefined"
   ) {

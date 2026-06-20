@@ -1,12 +1,11 @@
-import { apiFetch, apiUrl, parseAuthEnabled } from "@/lib/api";
+import { apiFetch, apiUrl, setRuntimeAuthEnabled } from "@/lib/api";
 
-// ``DEEPTUTOR_AUTH_ENABLED`` is exported by the container entrypoint on every
-// start (read from ``data/user/settings/auth.json``). ``parseAuthEnabled``
-// evaluates it at runtime (not a ``=== "true"`` literal comparison) so the
-// minifier cannot constant-fold the check. See lib/api.ts.
-export const AUTH_ENABLED = parseAuthEnabled(
-  process.env.DEEPTUTOR_AUTH_ENABLED,
-);
+// Auth state is resolved at runtime from the backend (`/api/v1/auth/status`),
+// not from a build-time/env constant: the browser bundle never sees
+// `DEEPTUTOR_AUTH_ENABLED` (not a `NEXT_PUBLIC_` var), and auth is runtime
+// config that must not be baked into the bundle. Components observe it via the
+// `useAuthStatus` hook (web/hooks/useAuthStatus.ts); `apiFetch`'s redirect gate
+// is driven by `setRuntimeAuthEnabled`, which `fetchAuthStatus` calls below.
 
 export interface AuthStatus {
   enabled: boolean;
@@ -25,7 +24,11 @@ export async function fetchAuthStatus(): Promise<AuthStatus | null> {
   try {
     const res = await apiFetch(apiUrl("/api/v1/auth/status"));
     if (!res.ok) return null;
-    return res.json();
+    const status: AuthStatus = await res.json();
+    // Record the real auth state so apiFetch's in-session 401 → /login redirect
+    // fires only when auth is actually enabled.
+    setRuntimeAuthEnabled(Boolean(status.enabled));
+    return status;
   } catch {
     return null;
   }

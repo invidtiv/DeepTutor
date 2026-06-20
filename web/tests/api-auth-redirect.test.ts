@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-// AUTH_ENABLED is read at module-load time, so the environment must be
-// configured before the module under test is imported. The frontend now uses
-// relative paths; the URL forwarding happens in proxy.ts at request time,
-// reading DEEPTUTOR_API_BASE_URL (set by the container entrypoint on every
-// start from data/user/settings/system.json).
-process.env.DEEPTUTOR_AUTH_ENABLED = "true";
+// Auth state is resolved at runtime, not from a build-time env var: apiFetch's
+// 401 → /login redirect is gated by a flag set via setRuntimeAuthEnabled (which
+// web/lib/auth.ts → fetchAuthStatus calls once the backend reports the real
+// state). The frontend uses relative paths; URL forwarding happens in proxy.ts
+// at request time, reading DEEPTUTOR_API_BASE_URL set by the launcher / Docker
+// entrypoint from data/user/settings.
 
 let apiModulePromise: Promise<typeof import("../lib/api")> | null = null;
 
@@ -61,7 +61,8 @@ function tick(): Promise<void> {
 }
 
 test("apiFetch redirects to /login on 401 when auth is enabled and no opt-out", async () => {
-  const { apiFetch } = await loadApiModule();
+  const { apiFetch, setRuntimeAuthEnabled } = await loadApiModule();
+  setRuntimeAuthEnabled(true);
   const win = installWindow("/dashboard");
   const restore = stubFetch(jsonResponse(401, { detail: "unauthorized" }));
   try {
@@ -72,6 +73,24 @@ test("apiFetch redirects to /login on 401 when auth is enabled and no opt-out", 
   } finally {
     restore();
     clearWindow();
+  }
+});
+
+test("apiFetch does NOT redirect on 401 when auth is disabled (default)", async () => {
+  // Regression guard: in the default auth-disabled deployment the runtime flag
+  // is never turned on, so a stray 401 must NOT bounce the user to /login.
+  const { apiFetch, setRuntimeAuthEnabled } = await loadApiModule();
+  setRuntimeAuthEnabled(false);
+  const win = installWindow("/dashboard");
+  const restore = stubFetch(jsonResponse(401, { detail: "unauthorized" }));
+  try {
+    const res = await apiFetch("http://localhost:8001/api/v1/knowledge/list");
+    assert.equal(res.status, 401);
+    assert.equal(win.redirectedTo(), null);
+  } finally {
+    restore();
+    clearWindow();
+    setRuntimeAuthEnabled(true);
   }
 });
 
