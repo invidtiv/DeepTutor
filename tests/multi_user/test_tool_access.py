@@ -73,10 +73,10 @@ def test_admin_is_never_restricted(as_user):
         assert exec_override() is None
 
 
-def test_user_without_grant_is_unrestricted(as_user, mu_isolated_root):
+def test_user_without_grant_keeps_builtins_unrestricted_but_denies_mcp(as_user, mu_isolated_root):
     with as_user("u_alice"):
         assert allowed_optional_tools() is None
-        assert allowed_mcp_tools() is None
+        assert allowed_mcp_tools() == set()
         assert exec_override() is None
 
 
@@ -85,13 +85,13 @@ def test_user_whitelists_resolve_from_grant(as_user, grantable_alice):
         grantable_alice,
         {
             "enabled_tools": ["web_search"],
-            "mcp_tools": [],
+            "mcp_tools": ["mcp_demo_search", "mcp_demo_write"],
             "exec_enabled": False,
         },
     )
     with as_user(grantable_alice):
         assert allowed_optional_tools() == {"web_search"}
-        assert allowed_mcp_tools() == set()
+        assert allowed_mcp_tools() == {"mcp_demo_search", "mcp_demo_write"}
         assert exec_override() is False
 
 

@@ -435,15 +435,19 @@ class AgenticChatPipeline:
 
             await get_mcp_manager().ensure_started()
             # Caller-scoped whitelist (e.g. a partner's configured MCP tools)
-            # intersected with the current user's admin grant: ``None`` = all
-            # deferred tools, a set = only these. Either side can narrow.
+            # intersected with the current user's admin grant. ``None`` means
+            # unrestricted; a set narrows the deferred tools. Real non-admin
+            # users fail closed when no MCP grant is present, while partner
+            # turns use their owner-scoped metadata whitelist as the authority.
             from deeptutor.multi_user.tool_access import allowed_mcp_tools, combine_whitelists
 
             raw_filter = context.metadata.get("mcp_tools_filter")
-            allowed: set[str] | None = combine_whitelists(
-                {str(name) for name in raw_filter} if isinstance(raw_filter, list) else None,
-                allowed_mcp_tools(),
+            caller_allowed = (
+                {str(name) for name in raw_filter} if isinstance(raw_filter, list) else None
             )
+            is_partner = str((context.metadata or {}).get("source")) == "partner"
+            user_allowed = None if is_partner else allowed_mcp_tools()
+            allowed: set[str] | None = combine_whitelists(caller_allowed, user_allowed)
             pool = self.registry.deferred_tools()
             if allowed is not None:
                 pool = [t for t in pool if t.get_definition().name in allowed]

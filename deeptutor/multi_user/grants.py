@@ -20,12 +20,15 @@ def empty_grant(user_id: str) -> dict[str, Any]:
         "models": {"llm": []},
         "knowledge_bases": [],
         "skills": [],
-        # Tool whitelists share the partner-config semantics: ``None`` means
-        # "default" (every tool in the pool), ``[]`` means none, a list is an
-        # explicit whitelist. ``exec_enabled`` is a tri-state override on top
-        # of the deployment exec policy: ``None`` follows the policy, ``False``
-        # always denies, ``True`` is only honored where the sandbox can
-        # actually isolate users (SYSTEM isolation).
+        # Tool whitelists share the partner-config semantics for built-ins:
+        # ``enabled_tools=None`` means "default" (every tool in the pool),
+        # ``[]`` means none, a list is an explicit whitelist. MCP tools can
+        # proxy host-side capabilities, so non-admin runtime access treats
+        # ``mcp_tools=None`` as deny-by-default until an admin grants explicit
+        # names. ``exec_enabled`` is a tri-state override on top of the
+        # deployment exec policy: ``None`` follows the policy, ``False`` always
+        # denies, ``True`` is only honored where the sandbox can actually
+        # isolate users (SYSTEM isolation).
         "enabled_tools": None,
         "mcp_tools": None,
         "exec_enabled": None,
