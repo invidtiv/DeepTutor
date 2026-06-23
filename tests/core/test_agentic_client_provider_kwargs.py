@@ -185,6 +185,46 @@ def test_siliconflow_deepseek_can_use_native_tool_calling() -> None:
     )
 
 
+def test_registered_cloud_openai_compat_providers_enable_native_tools() -> None:
+    # Registered cloud OpenAI-compatible providers are tool-capable by default,
+    # even without a dedicated PROVIDER_CAPABILITIES entry — function calling is
+    # part of the OpenAI-compatible API contract. Guards against silently
+    # disabling native tools when a new cloud provider joins the registry (the
+    # gap that affected SiliconFlow before #584).
+    for binding in (
+        "gemini",
+        "zhipu",
+        "qianfan",
+        "stepfun",
+        "xiaomi_mimo",
+        "nvidia_nim",
+        "aihubmix",
+        "volcengine_coding_plan",
+        "byteplus_coding_plan",
+    ):
+        assert can_use_native_tool_calling(binding=binding, model=None) is True, binding
+
+
+def test_local_and_oauth_backends_stay_opted_out_of_native_tools() -> None:
+    # Local OpenAI-compatible servers (model-dependent, unreliable tool support)
+    # and the OAuth CLI backends keep native tool schemas disabled.
+    for binding in (
+        "ollama",
+        "vllm",
+        "lm_studio",
+        "llama_cpp",
+        "lemonade",
+        "ovms",
+        "openai_codex",
+        "github_copilot",
+    ):
+        assert can_use_native_tool_calling(binding=binding, model=None) is False, binding
+
+
+def test_unknown_binding_does_not_enable_native_tools() -> None:
+    assert can_use_native_tool_calling(binding="totally-unknown", model=None) is False
+
+
 @pytest.mark.asyncio
 async def test_anthropic_adapter_streams_openai_style_chunks() -> None:
     captured = {}

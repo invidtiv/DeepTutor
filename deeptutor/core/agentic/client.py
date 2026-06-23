@@ -328,10 +328,30 @@ def build_provider_extra_kwargs(
 
 
 def can_use_native_tool_calling(*, binding: str, model: str | None) -> bool:
-    """Whether the current provider supports OpenAI-style function calling."""
-    if not supports_tools(binding, model):
-        return False
+    """Whether the current provider supports OpenAI-style function calling.
+
+    Resolution order:
+
+    1. Anthropic-backed providers always support tool use (native Messages API).
+    2. Local OpenAI-compatible servers (Ollama, vLLM, LM Studio, llama.cpp,
+       Lemonade, OVMS, …) and anything in ``_NATIVE_TOOL_BLOCKED_BINDINGS`` are
+       opted out — tool support there depends on the loaded model and is
+       unreliable, so the loop falls back to prose.
+    3. An explicit ``supports_tools`` capability (provider- or model-level) wins.
+    4. Otherwise a registered *cloud* OpenAI-compatible provider is assumed
+       tool-capable — function calling is part of that API contract, matching
+       the catch-all ``custom`` provider. This keeps newly added cloud
+       providers working without a dedicated capability entry, instead of
+       silently disabling native tools (the gap that affected e.g. SiliconFlow,
+       Gemini, Zhipu, Qianfan, NVIDIA NIM and the Volc/BytePlus coding plans).
+       To opt a cloud provider out, add its binding to
+       ``_NATIVE_TOOL_BLOCKED_BINDINGS``.
+    """
     spec = find_by_name(binding)
     if spec and spec.backend == "anthropic":
         return True
-    return binding not in _NATIVE_TOOL_BLOCKED_BINDINGS
+    if binding in _NATIVE_TOOL_BLOCKED_BINDINGS or (spec and spec.is_local):
+        return False
+    if supports_tools(binding, model):
+        return True
+    return bool(spec and spec.backend == "openai_compat")
