@@ -126,9 +126,10 @@ services:
     read_only: true
     # Writable surfaces inside the RO rootfs. Each tmpfs is scoped to a
     # specific need:
-    #   /tmp        — general scratch for Python, uvicorn, Node, Next.js
+    #   /tmp        — scratch for Python, uvicorn, Node, Next.js +
+    #                 supervisord's pidfile (/tmp/supervisord.pid)
     #   /run        — standard Linux runtime dir
-    #   /var/run    — supervisord writes its pidfile here
+    #   /var/run    — standard runtime dir (kept writable for any tooling)
     #   /var/log    — covers any supervisord child that defaults there
     #   /root       — catches stray $HOME-style writes (image sets
     #                 PYTHONDONTWRITEBYTECODE=1, but be safe)

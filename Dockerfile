@@ -181,26 +181,50 @@ RUN mkdir -p \
     data/user/logs \
     data/knowledge_bases
 
-# Bake a non-root user for the supervisord programs. supervisord runs as
-# root (PID 1) and drops each child to this user via the per-program
-# `user=deeptutor` directive, so the backend/frontend processes stay
-# non-root. UID 1000 matches the host user under rootless podman's
-# `userns_mode: keep-id` with a bind mount on ./data.
+# Bake a non-root user (UID 1000) for the supervisord programs. supervisord
+# itself runs as PID 1's UID — root under rootful Docker/Podman, or UID 1000
+# under rootless podman + `userns_mode: keep-id` (where PID 1 is the host
+# user). Each child (backend/frontend) is dropped to this `deeptutor` user via
+# the per-program `user=deeptutor` directive, so the app processes stay
+# non-root in either runtime. UID 1000 also matches the host user under
+# keep-id with a bind mount on ./data.
 RUN groupadd --system --gid 1000 deeptutor \
     && useradd --system --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin deeptutor \
     && chown -R deeptutor:deeptutor /app/data /app/web/.next
 
-# Create supervisord configuration for running both services
-# Log output goes to stdout/stderr so docker logs can capture them
+# supervisord config is split into two files so the production and development
+# images share one daemon-level [supervisord] section instead of duplicating it:
+#   - /etc/supervisor/supervisord.conf      — daemon-level settings (shared)
+#   - /etc/supervisor/conf.d/programs.conf  — the backend/frontend programs
+# Production defines the programs here; the development stage overrides only
+# programs.conf, leaving the shared daemon section untouched.
+# Program output goes to the container's stdout/stderr so `docker logs` captures it.
 RUN mkdir -p /etc/supervisor/conf.d
 
-RUN cat > /etc/supervisor/conf.d/deeptutor.conf <<'EOF'
+# Daemon-level config. No `user=` in [supervisord]: supervisord runs as PID 1's
+# UID (root under rootful; UID 1000 under rootless podman + keep-id, which has
+# no CAP_SETUID and would make a `user=` line fail at startup with
+# "Can't drop privilege as nonroot user" — see supervisord options.py). The
+# pidfile lives in /tmp, which is world-writable, so supervisord can create it
+# whether it runs as root or UID 1000; /var/run is root-owned and not writable
+# by UID 1000 under rootless keep-id.
+RUN cat > /etc/supervisor/supervisord.conf <<'EOF'
 [supervisord]
 nodaemon=true
 logfile=/dev/null
 logfile_maxbytes=0
-pidfile=/var/run/supervisord.pid
+pidfile=/tmp/supervisord.pid
 
+[include]
+files = /etc/supervisor/conf.d/programs.conf
+EOF
+
+RUN sed -i 's/\r$//' /etc/supervisor/supervisord.conf
+
+# Program definitions (production). Each child drops to the unprivileged
+# deeptutor user (UID 1000) via per-program `user=deeptutor`; see the note on
+# the user= design above the daemon config.
+RUN cat > /etc/supervisor/conf.d/programs.conf <<'EOF'
 [program:backend]
 command=/bin/bash /app/start-backend.sh
 directory=/app
@@ -227,7 +251,7 @@ stderr_logfile_maxbytes=0
 environment=NODE_ENV="production"
 EOF
 
-RUN sed -i 's/\r$//' /etc/supervisor/conf.d/deeptutor.conf
+RUN sed -i 's/\r$//' /etc/supervisor/conf.d/programs.conf
 
 # Create backend startup script
 RUN cat > /app/start-backend.sh <<'EOF'
@@ -358,25 +382,12 @@ echo "   - data/user/settings/main.yaml"
 echo "   - data/user/settings/agents.yaml"
 echo "============================================"
 
-# Run supervisord with PID 1's UID — deliberately omitting `user=` from the
-# [supervisord] section so supervisord inherits whatever UID the container
-# started with (root under rootful Docker/Podman; UID 1000 under rootless
-# podman + userns_mode: keep-id, where PID 1 is the host user).
-#
-# Why no `user=root`: under rootless + keep-id, PID 1 is UID 1000 and has no
-# CAP_SETUID, so forcing `user=root` would make supervisord fail at startup
-# with "Error: Can't drop privilege as nonroot user" (see supervisord
-# options.py — it refuses to drop privileges when not running as root). The
-# previous design with `user=root` worked under rootful but broke rootless.
-#
-# The backend and frontend programs are still dropped to the unprivileged
-# deeptutor user (UID 1000) via per-program `user=deeptutor` in the
-# supervisord config — that setuid works because either (a) PID 1 is root
-# (rootful) and has CAP_SETUID, or (b) PID 1 is already UID 1000 (rootless
-# keep-id) and the setuid is a no-op. /dev/fd/1,2 ownership matches PID 1's
-# UID in both runtimes, so supervisord can write to them without an explicit
-# setuid dance.
-exec /usr/bin/supervisord -c /etc/supervisor/conf.d/deeptutor.conf
+# Hand off to supervisord as PID 1. The daemon-level config deliberately omits
+# `user=` so supervisord inherits PID 1's UID and stays portable across rootful
+# and rootless-keep-id runtimes; children drop to the deeptutor user via
+# per-program `user=`. Full rationale lives next to the [supervisord] section
+# in the build step that writes /etc/supervisor/supervisord.conf.
+exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
 EOF
 
 RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
@@ -437,15 +448,10 @@ RUN pip install --no-cache-dir \
     black \
     ruff
 
-# Override supervisord config for development (with reload)
-# Log output goes to stdout/stderr so docker logs can capture them
-RUN cat > /etc/supervisor/conf.d/deeptutor.conf <<'EOF'
-[supervisord]
-nodaemon=true
-logfile=/dev/null
-logfile_maxbytes=0
-pidfile=/var/run/supervisord.pid
-
+# Development overrides only the program definitions (uvicorn --reload and
+# `next dev`); the shared daemon-level /etc/supervisor/supervisord.conf from
+# the production stage is reused as-is.
+RUN cat > /etc/supervisor/conf.d/programs.conf <<'EOF'
 [program:backend]
 command=python -m uvicorn deeptutor.api.main:app --host 0.0.0.0 --port %(ENV_BACKEND_PORT)s --reload --no-access-log
 directory=/app
@@ -472,7 +478,7 @@ stderr_logfile_maxbytes=0
 environment=NODE_ENV="development"
 EOF
 
-RUN sed -i 's/\r$//' /etc/supervisor/conf.d/deeptutor.conf
+RUN sed -i 's/\r$//' /etc/supervisor/conf.d/programs.conf
 
 # Development ports
 EXPOSE 8001 3782

@@ -7,12 +7,13 @@ import { Cpu, Loader2, Plug, Plus, Trash2, X } from "lucide-react";
 import { agentGlyph } from "@/components/agents/agent-icons";
 import PartnerAvatar from "@/components/partners/PartnerAvatar";
 import SpaceSectionHeader from "@/components/space/SpaceSectionHeader";
-import { listPartners, type PartnerInfo } from "@/lib/partners-api";
 import {
   connectSubagent,
   detectSubagents,
   disconnectSubagent,
+  listConnectablePartners,
   listSubagentConnections,
+  type ConnectablePartner,
   type SubagentBackendInfo,
   type SubagentConnection,
 } from "@/lib/subagents-api";
@@ -45,7 +46,7 @@ export default function ConnectedAgents() {
 
   const [backends, setBackends] = useState<SubagentBackendInfo[]>([]);
   const [connections, setConnections] = useState<SubagentConnection[]>([]);
-  const [partners, setPartners] = useState<PartnerInfo[]>([]);
+  const [partners, setPartners] = useState<ConnectablePartner[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [busyName, setBusyName] = useState<string | null>(null);
@@ -56,7 +57,7 @@ export default function ConnectedAgents() {
       const [detected, conns, parts] = await Promise.all([
         detectSubagents().catch(() => [] as SubagentBackendInfo[]),
         listSubagentConnections().catch(() => [] as SubagentConnection[]),
-        listPartners().catch(() => [] as PartnerInfo[]),
+        listConnectablePartners().catch(() => [] as ConnectablePartner[]),
       ]);
       setBackends(detected);
       setConnections(conns);
@@ -239,7 +240,7 @@ function ConnectModal({
   onConnected,
 }: {
   backends: SubagentBackendInfo[];
-  partners: PartnerInfo[];
+  partners: ConnectablePartner[];
   existingNames: string[];
   tr: (l: Lang) => string;
   onClose: () => void;

@@ -176,7 +176,6 @@ class SupportedFileTypesInfo(BaseModel):
     extensions: list[str]
     accept: str
     max_file_size_bytes: int
-    max_pdf_size_bytes: int
 
 
 IMAGE_ACCEPT_MIME_TYPES = {
@@ -1300,7 +1299,6 @@ async def get_supported_file_types():
         extensions=extensions,
         accept=",".join(dict.fromkeys(accept_items)),
         max_file_size_bytes=DocumentValidator.MAX_FILE_SIZE,
-        max_pdf_size_bytes=DocumentValidator.MAX_PDF_SIZE,
     )
 
 
@@ -1935,15 +1933,10 @@ async def move_kb_file(kb_name: str, payload: MoveFilePayload):
 async def serve_kb_raw_file_text_preview(kb_name: str, filename: str):
     """Serve extracted plain text for a raw KB document preview."""
     target = _resolve_kb_raw_file_or_404(kb_name, filename)
-    max_bytes = (
-        DocumentValidator.MAX_PDF_SIZE
-        if target.suffix.lower() == ".pdf"
-        else DocumentValidator.MAX_FILE_SIZE
-    )
     try:
         text = extract_text_from_path(
             target,
-            max_bytes=max_bytes,
+            max_bytes=DocumentValidator.MAX_FILE_SIZE,
             max_chars=MAX_EXTRACTED_CHARS_PER_DOC,
         )
     except DocumentExtractionError as exc:

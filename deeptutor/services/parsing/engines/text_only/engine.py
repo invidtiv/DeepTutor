@@ -51,13 +51,10 @@ class TextOnlyParser:
         if on_output:
             on_output(f"Extracting plain text from {Path(source_path).name}...")
 
-        max_bytes = (
-            DocumentValidator.MAX_PDF_SIZE
-            if source_path.suffix.lower() == ".pdf"
-            else DocumentValidator.MAX_FILE_SIZE
-        )
         try:
-            text = extract_text_from_path(source_path, max_bytes=max_bytes, max_chars=None)
+            text = extract_text_from_path(
+                source_path, max_bytes=DocumentValidator.MAX_FILE_SIZE, max_chars=None
+            )
         except (DocumentExtractionError, OSError) as exc:
             raise ParserError(
                 f"text-only extraction failed for {Path(source_path).name}: {exc}"

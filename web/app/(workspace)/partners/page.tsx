@@ -11,6 +11,11 @@ import { useRouter } from "next/navigation";
 import { HeartHandshake, Loader2, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { listPartners, type PartnerInfo } from "@/lib/partners-api";
+import {
+  listConnectablePartners,
+  type ConnectablePartner,
+} from "@/lib/subagents-api";
+import { useAuthStatus } from "@/hooks/useAuthStatus";
 import ChannelIcon from "@/components/partners/ChannelIcon";
 import PartnerAvatar from "@/components/partners/PartnerAvatar";
 
@@ -23,26 +28,52 @@ function channelNames(partner: PartnerInfo): string[] {
   return [];
 }
 
+function asPartnerInfo(card: ConnectablePartner): PartnerInfo {
+  // A non-admin only ever sees identity cards (no channel wiring); normalize
+  // into the shape the card grid renders, with no channels.
+  return {
+    partner_id: card.partner_id,
+    name: card.name,
+    description: card.description || "",
+    channels: [],
+    emoji: card.emoji,
+    color: card.color,
+    avatar: card.avatar,
+    language: card.language,
+    running: Boolean(card.running),
+    started_at: null,
+  };
+}
+
 export default function PartnersPage() {
   const router = useRouter();
   const { t } = useTranslation();
+  // Partners are admin-managed: an admin sees & manages every partner, while a
+  // non-admin sees only the partners assigned to them, read-only (creation and
+  // editing stay admin-only). The list source differs accordingly.
+  const { isAdmin, loading: authLoading } = useAuthStatus();
   const [partners, setPartners] = useState<PartnerInfo[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setPartners(await listPartners());
+      if (isAdmin) {
+        setPartners(await listPartners());
+      } else {
+        setPartners((await listConnectablePartners()).map(asPartnerInfo));
+      }
     } catch {
       setPartners([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
+    if (authLoading) return;
     void load();
-  }, [load]);
+  }, [authLoading, load]);
 
   return (
     <div className="mx-auto h-full max-w-4xl overflow-y-auto px-6 py-8">
@@ -52,18 +83,24 @@ export default function PartnersPage() {
             {t("Partners")}
           </h1>
           <p className="mt-1 text-[12.5px] text-[var(--muted-foreground)]">
-            {t(
-              "Companions with their own soul, library, and channels — reachable from your IM apps.",
-            )}
+            {isAdmin
+              ? t(
+                  "Companions with their own soul, library, and channels — reachable from your IM apps.",
+                )
+              : t(
+                  "Partners your administrator has assigned to you. Connect one under My Agents to consult it in chat.",
+                )}
           </p>
         </div>
-        <Link
-          href="/partners/new"
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-2 text-[12.5px] font-medium text-[var(--primary-foreground)] hover:opacity-90"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          {t("New partner")}
-        </Link>
+        {isAdmin ? (
+          <Link
+            href="/partners/new"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-2 text-[12.5px] font-medium text-[var(--primary-foreground)] hover:opacity-90"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {t("New partner")}
+          </Link>
+        ) : null}
       </header>
 
       {loading ? (
@@ -77,20 +114,26 @@ export default function PartnersPage() {
             strokeWidth={1.5}
           />
           <p className="text-[14px] font-medium text-[var(--foreground)]">
-            {t("No partners yet")}
+            {isAdmin ? t("No partners yet") : t("No partners assigned yet")}
           </p>
           <p className="mt-1.5 max-w-sm text-[12.5px] leading-relaxed text-[var(--muted-foreground)]">
-            {t(
-              "Create a partner, give it a soul and a slice of your library, then talk to it here or from Feishu, Telegram, Slack and more.",
-            )}
+            {isAdmin
+              ? t(
+                  "Create a partner, give it a soul and a slice of your library, then talk to it here or from Feishu, Telegram, Slack and more.",
+                )
+              : t(
+                  "Your administrator hasn't assigned you any partners yet. Once they do, they'll appear here.",
+                )}
           </p>
-          <Link
-            href="/partners/new"
-            className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-2 text-[12.5px] font-medium text-[var(--primary-foreground)]"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {t("Create your first partner")}
-          </Link>
+          {isAdmin ? (
+            <Link
+              href="/partners/new"
+              className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-2 text-[12.5px] font-medium text-[var(--primary-foreground)]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t("Create your first partner")}
+            </Link>
+          ) : null}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -100,8 +143,15 @@ export default function PartnersPage() {
               <button
                 key={partner.partner_id}
                 type="button"
-                onClick={() => router.push(`/partners/${partner.partner_id}`)}
-                className="group flex items-start gap-3 rounded-2xl border border-[var(--border)] p-4 text-left transition-colors hover:border-[var(--ring)]"
+                onClick={
+                  isAdmin
+                    ? () => router.push(`/partners/${partner.partner_id}`)
+                    : undefined
+                }
+                aria-disabled={!isAdmin}
+                className={`group flex items-start gap-3 rounded-2xl border border-[var(--border)] p-4 text-left transition-colors ${
+                  isAdmin ? "hover:border-[var(--ring)]" : "cursor-default"
+                }`}
               >
                 <PartnerAvatar
                   name={partner.name}

@@ -238,23 +238,29 @@ podman run --rm -d --name deeptutor \
   ghcr.io/hkuds/deeptutor:latest
 ```
 
-After the container is up, the backend and frontend run as the non-root
-`deeptutor` user — `podman exec deeptutor ps -o user,pid,comm` shows
-`supervisord` as root (PID 1) with its `uvicorn`/`node` children as
-`deeptutor` (UID 1000).
+After the container is up, the backend and frontend always run as the
+non-root `deeptutor` user (UID 1000) — `podman exec deeptutor ps -o user,pid,comm`
+shows the `uvicorn`/`node` children as `deeptutor`. `supervisord` itself
+(PID 1) runs as whatever UID the runtime started it with: root under rootful
+Docker/Podman, or the host user under rootless podman + `userns_mode: keep-id`.
 
 ### Supervisord pidfile
 
-`supervisord` (PID 1) runs as **root**, which owns the `/var/run` tmpfs, so
-it writes `/var/run/supervisord.pid` cleanly even at `mode=0755`. An earlier
-build dropped PID 1 *itself* to the unprivileged `deeptutor` user (via
-`gosu`); that PID 1 couldn't write the root-owned `/var/run` and logged a
-cosmetic `CRIT could not write pidfile /var/run/supervisord.pid` on every
-start under rootless podman. Running supervisord as root and dropping only
-its child programs to `deeptutor` (the `user=` directives above) resolved
-both that CRIT and the fatal `/dev/fd/1,2` EACCES seen under rootful Docker.
-If you ever revert PID 1 to a non-root user, set `/var/run` to `mode=1777`
-(matching `/tmp`) so the pidfile stays writable.
+The `[supervisord]` section carries **no `user=` directive**, so supervisord
+runs as PID 1's UID and never tries to drop its own privilege; only its child
+programs are dropped to `deeptutor` via the per-program `user=` directives.
+Pinning `user=root` here (an earlier design) broke rootless keep-id, where
+PID 1 is the non-root host user and lacks `CAP_SETUID`: supervisord refuses to
+drop privilege and exits at startup with `Can't drop privilege as nonroot
+user` (see supervisord's `options.py`).
+
+The pidfile is written to **`/tmp/supervisord.pid`**. `/tmp` is `mode=1777`
+(world-writable) in every run configuration above, so the pidfile is writable
+whether PID 1 is root or the host UID, and regardless of who owns `/var/run`.
+An earlier build pointed the pidfile at the root-owned `/var/run/supervisord.pid`;
+under rootless keep-id the non-root PID 1 couldn't write it and logged a
+cosmetic `CRIT could not write pidfile` on every start. Putting it in `/tmp`
+removes that dependency on the `/var/run` owner and mode entirely.
 
 ---
 
@@ -321,11 +327,11 @@ you've wired up an external user store.
 
 ## Troubleshooting
 
-**`/var/run/supervisord.pid: Permission denied` on container start.**
-Expected with `read_only: true` and `/var/run` tmpfs at `mode=0755`. The
-supervised children still come up; only the `supervisord` master logs
-this. Fix: change the tmpfs mode to `1777` (match `/tmp`) — see the
-known follow-up note above.
+**`CRIT could not write pidfile /var/run/supervisord.pid` on container start.**
+Only on images built before the pidfile moved to `/tmp/supervisord.pid`
+(`mode=1777`, always writable); current images don't emit it. The supervised
+children come up either way — the line was always cosmetic. Fix: pull a
+current image (or, on an old one, set the `/var/run` tmpfs to `mode=1777`).
 
 **Page loads but Settings says "Backend unreachable".** The UI reaches the
 backend through the in-container proxy, not a host port, so this is almost

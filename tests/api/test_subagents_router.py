@@ -161,6 +161,38 @@ def test_connect_partner_binds_partner_id(client, monkeypatch):
     assert listed[0]["partner_id"] == "paul"
 
 
+def test_list_visible_partners(client, monkeypatch):
+    monkeypatch.setattr(
+        subagents_module,
+        "visible_partner_cards",
+        lambda: [{"partner_id": "p1", "name": "P1", "emoji": "🤖"}],
+    )
+    res = client.get("/api/v1/subagents/partners")
+    assert res.status_code == 200
+    partners = res.json()["partners"]
+    assert partners == [{"partner_id": "p1", "name": "P1", "emoji": "🤖"}]
+
+
+def test_connect_partner_denied_when_not_assigned(client, monkeypatch):
+    # A non-admin connecting an unassigned partner is rejected by the
+    # assignment guard before the connection is created.
+    from fastapi import HTTPException
+
+    _patch_partner_existence(monkeypatch, {"paul"})
+
+    def deny(_pid):
+        raise HTTPException(status_code=403, detail="Partner is not assigned to you")
+
+    monkeypatch.setattr(subagents_module, "assert_partner_allowed", deny)
+    res = client.post(
+        "/api/v1/subagents/connections",
+        json={"name": "Paul", "agent_kind": "partner", "partner_id": "paul"},
+    )
+    assert res.status_code == 403
+    # Nothing was connected.
+    assert client.get("/api/v1/subagents/connections").json()["connections"] == []
+
+
 def test_connect_partner_requires_partner_id(client, monkeypatch):
     _patch_partner_existence(monkeypatch, {"paul"})
     res = client.post(

@@ -14,6 +14,7 @@ function emptyGrant(userId: string): GrantPayload {
     models: { llm: [] },
     knowledge_bases: [],
     skills: [],
+    partners: [],
     enabled_tools: null,
     mcp_tools: null,
     exec_enabled: null,
@@ -176,6 +177,13 @@ export function GrantEditor({ userId }: { userId: string }) {
       ),
     [grant.skills],
   );
+  const partnerIds = useMemo(
+    () =>
+      new Set(
+        grant.partners.map((item) => String(item.partner_id || item.id || "")),
+      ),
+    [grant.partners],
+  );
 
   const selectedModelCount = useMemo(
     () =>
@@ -240,6 +248,19 @@ export function GrantEditor({ userId }: { userId: string }) {
             (item) => String(item.skill_id || item.id || "") !== name,
           )
         : [...next.skills, { skill_id: name, access: "use", source: "admin" }];
+      return next;
+    });
+  }
+
+  function togglePartner(partnerId: string, name: string) {
+    setGrant((current) => {
+      const next = structuredClone(current) as GrantPayload;
+      const exists = partnerIds.has(partnerId);
+      next.partners = exists
+        ? next.partners.filter(
+            (item) => String(item.partner_id || item.id || "") !== partnerId,
+          )
+        : [...next.partners, { partner_id: partnerId, name, source: "admin" }];
       return next;
     });
   }
@@ -350,6 +371,9 @@ export function GrantEditor({ userId }: { userId: string }) {
                 {skillIds.size} skills
               </span>
               <span className="rounded-full bg-[var(--muted)]/60 px-2 py-1">
+                {partnerIds.size} partners
+              </span>
+              <span className="rounded-full bg-[var(--muted)]/60 px-2 py-1">
                 {toolsSummary}
               </span>
               <span className="rounded-full bg-[var(--muted)]/60 px-2 py-1">
@@ -422,6 +446,32 @@ export function GrantEditor({ userId }: { userId: string }) {
                     onToggle={() => toggleSkill(skill.name)}
                   />
                 ))}
+              </div>
+            </section>
+            <section className="min-w-0">
+              <SectionTitle>Partners</SectionTitle>
+              <div className="space-y-1.5 text-xs">
+                {(resources?.partners || []).length === 0 ? (
+                  <p className="px-1 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+                    No partners yet. Create one under Partners to assign it.
+                  </p>
+                ) : (
+                  (resources?.partners || []).map((partner) => (
+                    <CheckRow
+                      key={partner.partner_id}
+                      label={partner.name || partner.partner_id}
+                      description={partner.description}
+                      checked={partnerIds.has(partner.partner_id)}
+                      disabled={controlsDisabled}
+                      onToggle={() =>
+                        togglePartner(
+                          partner.partner_id,
+                          partner.name || partner.partner_id,
+                        )
+                      }
+                    />
+                  ))
+                )}
               </div>
             </section>
 

@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseAuthEnabled } from "./lib/api";
+import {
+  COOKIE_NAME,
+  LOGIN_PATH,
+  classifyToken,
+  isAuthExempt,
+  isBackendPath,
+} from "./lib/proxy-policy";
 
-// Backend base URL for `/api/*` and `/ws/*` rewrites. The container
-// entrypoint exports `DEEPTUTOR_API_BASE_URL` from `data/user/settings/system.json`
+// Backend base URL for `/api/*` and `/ws/*` rewrites. The container entrypoint
+// exports `DEEPTUTOR_API_BASE_URL` from `data/user/settings/system.json`
 // (preferring `next_public_api_base`, then `next_public_api_base_external`,
 // then `http://localhost:${BACKEND_PORT}`). In dev (`deeptutor start`) it
 // defaults to `http://localhost:8001`.
@@ -10,76 +17,43 @@ const API_BASE_URL =
   process.env.DEEPTUTOR_API_BASE_URL ?? "http://localhost:8001";
 
 const AUTH_ENABLED = parseAuthEnabled(process.env.DEEPTUTOR_AUTH_ENABLED);
-const LOGIN_PATH = "/login";
-const COOKIE_NAME = "dt_token";
 
-export function proxy(req: NextRequest) {
+// Redirect to the login page, preserving the intended destination in `next`.
+// A present-but-invalid cookie is cleared so the browser stops resending it;
+// when no cookie was sent there is nothing to clear.
+function redirectToLogin(
+  req: NextRequest,
+  { clearCookie }: { clearCookie: boolean },
+): NextResponse {
+  const loginUrl = req.nextUrl.clone();
+  loginUrl.pathname = LOGIN_PATH;
+  loginUrl.searchParams.set("next", req.nextUrl.pathname);
+  const response = NextResponse.redirect(loginUrl);
+  if (clearCookie) response.cookies.delete(COOKIE_NAME);
+  return response;
+}
+
+export function proxy(req: NextRequest): NextResponse {
   const { pathname, search } = req.nextUrl;
 
-  // Forward all backend-relative paths to the configured backend. The browser
-  // fetches against the frontend origin (e.g. `:3782/api/v1/...` or
-  // `:3782/api/v1/.../ws`); the rewrite is what bridges the origin gap and
-  // keeps the URL knowledge in one place (the entrypoint + system.json) rather
-  // than baked into the frontend bundle.
-  if (pathname.startsWith("/api/") || pathname.startsWith("/ws/")) {
+  // 1. Bridge the origin gap: forward backend-relative paths to the API server.
+  //    This keeps the URL knowledge in one place (the entrypoint + system.json)
+  //    rather than baked into the frontend bundle.
+  if (isBackendPath(pathname)) {
     return NextResponse.rewrite(new URL(pathname + search, API_BASE_URL));
   }
 
-  // Auth is disabled (default) — let everything else through
-  if (!AUTH_ENABLED) return NextResponse.next();
-
-  // Always allow auth pages and Next.js internals
-  if (
-    pathname.startsWith(LOGIN_PATH) ||
-    pathname.startsWith("/register") ||
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon")
-  ) {
+  // 2. Auth gate — multi-user mode only. Disabled by default, and never blocks
+  //    auth pages, Next.js internals, or public static assets (see
+  //    isAuthExempt: that exemption is what keeps the logo/banner images
+  //    loading once login is enabled — issue #599).
+  if (!AUTH_ENABLED || isAuthExempt(pathname)) {
     return NextResponse.next();
   }
 
   const token = req.cookies.get(COOKIE_NAME)?.value;
-
-  // No token — redirect to login, preserving the intended destination
-  if (!token) {
-    const loginUrl = req.nextUrl.clone();
-    loginUrl.pathname = LOGIN_PATH;
-    loginUrl.searchParams.set("next", pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  // Verify token structure (JWT: header.payload.signature)
-  const parts = token.split(".");
-  if (parts.length !== 3) {
-    const loginUrl = req.nextUrl.clone();
-    loginUrl.pathname = LOGIN_PATH;
-    loginUrl.searchParams.set("next", pathname);
-    const response = NextResponse.redirect(loginUrl);
-    response.cookies.delete(COOKIE_NAME);
-    return response;
-  }
-
-  // Check expiry from payload (base64url-decoded JSON)
-  try {
-    const payload = JSON.parse(
-      Buffer.from(parts[1], "base64url").toString("utf-8"),
-    );
-    if (payload.exp && Date.now() >= payload.exp * 1000) {
-      const loginUrl = req.nextUrl.clone();
-      loginUrl.pathname = LOGIN_PATH;
-      loginUrl.searchParams.set("next", pathname);
-      const response = NextResponse.redirect(loginUrl);
-      response.cookies.delete(COOKIE_NAME);
-      return response;
-    }
-  } catch {
-    // Malformed payload — treat as invalid
-    const loginUrl = req.nextUrl.clone();
-    loginUrl.pathname = LOGIN_PATH;
-    loginUrl.searchParams.set("next", pathname);
-    const response = NextResponse.redirect(loginUrl);
-    response.cookies.delete(COOKIE_NAME);
-    return response;
+  if (classifyToken(token, Date.now()) !== "valid") {
+    return redirectToLogin(req, { clearCookie: Boolean(token) });
   }
 
   return NextResponse.next();
@@ -87,6 +61,9 @@ export function proxy(req: NextRequest) {
 
 export const config = {
   // Run on every request except Next.js internals and the favicon. The /api/*
-  // and /ws/* paths are explicitly handled above (rewritten to the backend).
+  // and /ws/* paths are explicitly handled above (rewritten to the backend);
+  // the browser's /_next/image optimizer requests are excluded here, while the
+  // optimizer's loopback fetch for the source image (e.g. /logo.png) is let
+  // through the auth gate by isAuthExempt.
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

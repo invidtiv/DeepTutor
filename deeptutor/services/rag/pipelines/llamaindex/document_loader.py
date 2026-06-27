@@ -62,13 +62,10 @@ class LlamaIndexDocumentLoader:
         return documents
 
     def _extract_parser_text(self, file_path: Path) -> str:
-        max_bytes = (
-            DocumentValidator.MAX_PDF_SIZE
-            if file_path.suffix.lower() == ".pdf"
-            else DocumentValidator.MAX_FILE_SIZE
-        )
         try:
-            return extract_text_from_path(file_path, max_bytes=max_bytes, max_chars=None)
+            return extract_text_from_path(
+                file_path, max_bytes=DocumentValidator.MAX_FILE_SIZE, max_chars=None
+            )
         except (DocumentExtractionError, OSError) as exc:
             self.logger.error(f"Failed to extract {file_path.name}: {exc}")
             return ""

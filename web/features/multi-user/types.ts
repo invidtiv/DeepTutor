@@ -6,6 +6,8 @@ export type GrantPayload = {
   };
   knowledge_bases: Array<Record<string, unknown>>;
   skills: Array<Record<string, unknown>>;
+  /** Admin-assigned partners the user may see & consult ([{ partner_id }]). */
+  partners: Array<Record<string, unknown>>;
   /** null = default (all system tools), [] = none, array = whitelist. */
   enabled_tools: string[] | null;
   /** null = default (all MCP tools), [] = none, array = whitelist. */
@@ -36,6 +38,7 @@ export type MultiUserResources = {
     source: "admin";
   }>;
   skills: Array<{ name: string; description?: string; tags?: string[] }>;
+  partners: Array<{ partner_id: string; name: string; description?: string }>;
   tools: ToolOption[];
   mcp_tools: McpToolOption[];
 };

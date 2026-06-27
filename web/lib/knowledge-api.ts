@@ -102,7 +102,6 @@ export interface KnowledgeUploadPolicy {
   extensions: string[];
   accept: string;
   max_file_size_bytes: number;
-  max_pdf_size_bytes: number;
 }
 
 export interface KnowledgeBaseFile {
@@ -160,11 +159,7 @@ function normalizeUploadPolicy(data: unknown): KnowledgeUploadPolicy {
     max_file_size_bytes:
       typeof payload?.max_file_size_bytes === "number"
         ? payload.max_file_size_bytes
-        : 100 * 1024 * 1024,
-    max_pdf_size_bytes:
-      typeof payload?.max_pdf_size_bytes === "number"
-        ? payload.max_pdf_size_bytes
-        : 50 * 1024 * 1024,
+        : 200 * 1024 * 1024,
   };
 }
 

@@ -194,7 +194,8 @@ def test_supported_file_types_returns_upload_policy() -> None:
     assert ".pptx" in payload["extensions"]
     assert ".md" in payload["extensions"]
     assert ".png" in payload["extensions"]
-    assert payload["max_file_size_bytes"] > payload["max_pdf_size_bytes"] > 0
+    assert payload["max_file_size_bytes"] > 0
+    assert "max_pdf_size_bytes" not in payload
     assert ".pdf" in payload["accept"]
     assert ".docx" in payload["accept"]
     assert ".png" in payload["accept"]

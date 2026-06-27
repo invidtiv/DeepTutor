@@ -36,7 +36,7 @@ from deeptutor.services.partners.workspace import (
 logger = logging.getLogger(__name__)
 
 _RESERVED_NAMES = {"workspace", "media", "sessions", "_souls"}
-_ID_SAFE_RE = re.compile(r"[^a-z0-9-]+")
+_HYPHEN_RUN_RE = re.compile(r"-+")
 LEGACY_GLOBAL_DELIVERY_KEYS = frozenset(
     {"send_progress", "send_tool_hints", "sendProgress", "sendToolHints"}
 )
@@ -92,7 +92,13 @@ def strip_legacy_global_delivery(channels: dict[str, Any]) -> dict[str, Any]:
 
 
 def slugify_partner_id(name: str) -> str:
-    slug = _ID_SAFE_RE.sub("-", name.strip().lower()).strip("-")
+    # Keep Unicode letters/digits so non-Latin names (e.g. 中文) survive as a
+    # readable id; collapse every other run of characters to a single hyphen.
+    # ``isalnum`` is Unicode-aware and (unlike ``\w``) excludes underscore, so
+    # an id can never collide with the reserved ``_souls`` directory. ASCII is
+    # lower-cased; case-less scripts (CJK, …) pass through unchanged.
+    cleaned = "".join(c if c.isalnum() else "-" for c in name.strip().lower())
+    slug = _HYPHEN_RUN_RE.sub("-", cleaned).strip("-")
     return slug or "partner"
 
 

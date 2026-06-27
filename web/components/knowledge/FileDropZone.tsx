@@ -224,10 +224,6 @@ export default function FileDropZone({
           {uploadPolicy.extensions.length} {t("types")} ·{" "}
           {t("Maximum file size: {{size}}", {
             size: formatFileSize(uploadPolicy.max_file_size_bytes),
-          })}{" "}
-          ·{" "}
-          {t("PDF limit: {{size}}", {
-            size: formatFileSize(uploadPolicy.max_pdf_size_bytes),
           })}
         </p>
       )}

@@ -21,6 +21,31 @@ export interface SubagentConnection {
   updated_at?: string | null;
 }
 
+/**
+ * A partner the current user may connect & consult. Admins get every partner;
+ * non-admins get only the partners an admin has assigned to them. Identity-only
+ * (no channel wiring / model selection) — that's what the connect flow needs.
+ */
+export interface ConnectablePartner {
+  partner_id: string;
+  name: string;
+  description?: string;
+  emoji?: string;
+  color?: string;
+  avatar?: string;
+  language?: string;
+  running?: boolean;
+}
+
+export async function listConnectablePartners(): Promise<ConnectablePartner[]> {
+  const res = await apiFetch(apiUrl("/api/v1/subagents/partners"), {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  const data = (await res.json()) as { partners: ConnectablePartner[] };
+  return data.partners ?? [];
+}
+
 export async function detectSubagents(): Promise<SubagentBackendInfo[]> {
   const res = await apiFetch(apiUrl("/api/v1/subagents/detect"), {
     cache: "no-store",
