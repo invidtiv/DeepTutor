@@ -17,10 +17,16 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import TYPE_CHECKING, Any
 import uuid
 
+from deeptutor.capabilities.mastery.choices import (
+    format_options,
+    has_option_bodies,
+    parse_options,
+    recover_options_from_turn,
+    resolve_answer,
+)
 from deeptutor.core.tool_protocol import BaseTool, ToolDefinition, ToolParameter, ToolResult
 
 # ``learning.models`` and ``learning.policy`` only depend on pydantic — safe to
@@ -62,8 +68,6 @@ _QUESTION_TYPES = ("choice", "short", "open")
 _ALLOWED_KP_TYPES = {t.value for t in KnowledgeType}
 logger = logging.getLogger(__name__)
 
-_OPTION_PREFIX_RE = re.compile(r"^\s*([A-Z])\s*[.:：、)）-]\s*(.+)$", re.IGNORECASE)
-
 
 def _new_service() -> LearningService:
     from deeptutor.learning.service import LearningService
@@ -93,108 +97,28 @@ def _question_bank_type(question_type: str) -> str:
     return "short_answer"
 
 
-def _question_bank_options(options: list[str]) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for idx, raw in enumerate(options):
-        text = str(raw or "").strip()
-        if not text:
-            continue
-        match = _OPTION_PREFIX_RE.match(text)
-        if match:
-            key = match.group(1).upper()
-            result[key] = match.group(2).strip()
-        elif len(text) == 1 and text.isalnum():
-            key = text.upper()
-            result[key] = text
-        else:
-            key = chr(ord("A") + idx) if idx < 26 else str(idx + 1)
-            result[key] = text
-    return result
+async def _resolve_pending_choice(
+    pending: PendingQuestion, turn_id: str
+) -> tuple[dict[str, str], str]:
+    """Resolve a pending choice question's ``({label: body}, expected_label)``.
 
-
-def _has_choice_option_bodies(options: dict[str, str]) -> bool:
-    """Whether a choice map contains real answer text, not only A/B/C labels."""
-    return len(options) >= 2 and all(
-        value.strip() and value.strip().upper() != key.upper() for key, value in options.items()
-    )
-
-
-def _normalized_choice_prompt(value: str) -> str:
-    return "".join(char.casefold() for char in str(value or "") if char.isalnum())
-
-
-def _resolve_choice_answer(expected_answer: str, options: dict[str, str]) -> str:
-    """Resolve a model-supplied choice answer to its stable option label.
-
-    Models occasionally send ``"Step 6"`` or the full option text even though
-    the interactive card returns ``"C"``.  Resolve a unique textual match at
-    registration time so deterministic grading compares like with like.
+    Re-parses the bodies stored at registration; for legacy paths that stored
+    only ``["A", "B", ...]`` it recovers the real bodies from the turn's
+    ``ask_user`` event. The expected answer is normalised to a stable label
+    when it resolves, else left as registered.
     """
-    expected = str(expected_answer or "").strip()
-    key = expected.upper()
-    if key in options:
-        return key
-    if not expected:
-        return ""
+    options = parse_options(list(pending.options or []))
+    if not has_option_bodies(options):
+        try:
+            from deeptutor.services.session import get_sqlite_session_store
 
-    prefix_match = _OPTION_PREFIX_RE.match(expected)
-    if prefix_match and prefix_match.group(1).upper() in options:
-        return prefix_match.group(1).upper()
-
-    needle = expected.casefold()
-    exact = [label for label, text in options.items() if text.casefold() == needle]
-    if len(exact) == 1:
-        return exact[0]
-    contained = [label for label, text in options.items() if needle in text.casefold()]
-    return contained[0] if len(contained) == 1 else ""
-
-
-async def _recover_choice_options_from_turn(
-    store: Any,
-    turn_id: str,
-    question: str,
-) -> dict[str, str]:
-    """Recover choice descriptions from the most recent matching ask_user card.
-
-    This is a compatibility fallback for questions registered by older
-    versions, where ``mastery_quiz`` persisted only ``["A", "B", ...]`` even
-    though the full descriptions were present in the turn's ``ask_user``
-    event.
-    """
-    if not turn_id or not hasattr(store, "get_turn_events"):
-        return {}
-    try:
-        events = await store.get_turn_events(turn_id)
-    except Exception:
-        logger.warning("Failed to load turn events for mastery option recovery", exc_info=True)
-        return {}
-
-    target = _normalized_choice_prompt(question)
-    for event in reversed(events):
-        if event.get("type") != "tool_call":
-            continue
-        metadata = event.get("metadata") or {}
-        if metadata.get("tool_name") != "ask_user":
-            continue
-        questions = (metadata.get("args") or {}).get("questions") or []
-        for item in reversed(questions):
-            if not isinstance(item, dict):
-                continue
-            recovered = {
-                str(option.get("label") or "").strip().upper(): str(
-                    option.get("description") or ""
-                ).strip()
-                for option in (item.get("options") or [])
-                if isinstance(option, dict)
-                and str(option.get("label") or "").strip()
-                and str(option.get("description") or "").strip()
-            }
-            if not _has_choice_option_bodies(recovered):
-                continue
-            prompt = _normalized_choice_prompt(str(item.get("prompt") or ""))
-            if prompt == target or prompt.startswith(target) or target.startswith(prompt):
-                return recovered
-    return {}
+            options = await recover_options_from_turn(
+                get_sqlite_session_store(), turn_id, pending.prompt
+            )
+        except Exception:
+            logger.warning("Failed to recover legacy mastery choice options", exc_info=True)
+            options = {}
+    return options, resolve_answer(pending.expected_answer, options) or pending.expected_answer
 
 
 async def _sync_mastery_attempt_to_question_bank(
@@ -214,7 +138,7 @@ async def _sync_mastery_attempt_to_question_bank(
         "question_id": pending.question_id,
         "question": pending.prompt,
         "question_type": _question_bank_type(pending.question_type),
-        "options": choice_options or _question_bank_options(list(pending.options or [])),
+        "options": choice_options or parse_options(list(pending.options or [])),
         "correct_answer": correct_answer or pending.expected_answer,
         "explanation": "",
         "difficulty": "",
@@ -366,8 +290,8 @@ class MasteryQuizTool(BaseTool):
             q_type = "short"
         options = [str(o) for o in (kwargs.get("options") or []) if str(o).strip()]
         if q_type == "choice":
-            choice_options = _question_bank_options(options)
-            if not _has_choice_option_bodies(choice_options):
+            choice_options = parse_options(options)
+            if not has_option_bodies(choice_options):
                 return ToolResult(
                     content=(
                         "Choice questions need full option bodies in mastery_quiz.options "
@@ -377,7 +301,7 @@ class MasteryQuizTool(BaseTool):
                     ),
                     success=False,
                 )
-            resolved_expected = _resolve_choice_answer(expected, choice_options)
+            resolved_expected = resolve_answer(expected, choice_options)
             if not resolved_expected:
                 return ToolResult(
                     content=(
@@ -388,7 +312,7 @@ class MasteryQuizTool(BaseTool):
                     success=False,
                 )
             expected = resolved_expected
-            options = [f"{key}: {text}" for key, text in choice_options.items()]
+            options = format_options(choice_options)
 
         service = _new_service()
         progress = service.get_or_create(path_id)
@@ -466,21 +390,9 @@ class MasteryGradeTool(BaseTool):
         choice_options: dict[str, str] = {}
         expected_answer = pending.expected_answer
         if pending.question_type == "choice":
-            choice_options = _question_bank_options(list(pending.options or []))
-            if not _has_choice_option_bodies(choice_options):
-                try:
-                    from deeptutor.services.session import get_sqlite_session_store
-
-                    choice_options = await _recover_choice_options_from_turn(
-                        get_sqlite_session_store(),
-                        _resolve_turn_id(kwargs),
-                        pending.prompt,
-                    )
-                except Exception:
-                    logger.warning("Failed to recover legacy mastery choice options", exc_info=True)
-            resolved_expected = _resolve_choice_answer(expected_answer, choice_options)
-            if resolved_expected:
-                expected_answer = resolved_expected
+            choice_options, expected_answer = await _resolve_pending_choice(
+                pending, _resolve_turn_id(kwargs)
+            )
 
         is_correct = service.grade_and_record(
             progress,
