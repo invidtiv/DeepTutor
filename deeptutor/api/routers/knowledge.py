@@ -1059,6 +1059,18 @@ async def upload_files(
 
         logger.info(f"Uploading {len(uploaded_files)} files to KB '{kb_name}'")
 
+        manager.update_kb_status(
+            name=kb_name,
+            status="processing",
+            progress={
+                "stage": "processing",
+                "message": f"Processing {len(uploaded_files)} uploaded file(s)...",
+                "percent": 0,
+                "task_id": task_id,
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+
         background_tasks.add_task(
             run_upload_processing_task,
             kb_name=kb_name,
