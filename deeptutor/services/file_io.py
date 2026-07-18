@@ -24,6 +24,11 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             temporary_path = Path(handle.name)
             json.dump(payload, handle, indent=2, ensure_ascii=False)
             handle.write("\n")
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError:
+                pass
         temporary_path.replace(path)
     finally:
         if temporary_path is not None:

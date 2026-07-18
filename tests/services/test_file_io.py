@@ -39,6 +39,18 @@ def test_atomic_write_json_cleans_up_temporary_file_on_failure(
     assert list(path.parent.iterdir()) == []
 
 
+def test_atomic_write_json_preserves_original_on_failure(tmp_path: Path) -> None:
+    target = tmp_path / "metadata.json"
+    target.write_text('{"ok": true}', encoding="utf-8")
+
+    with pytest.raises(TypeError):
+        atomic_write_json(target, {"bad": object()})
+
+    assert json.loads(target.read_text(encoding="utf-8")) == {"ok": True}
+    # The failed write must not litter temp files next to the target.
+    assert [p.name for p in tmp_path.iterdir()] == ["metadata.json"]
+
+
 def test_atomic_write_text_creates_parent_and_replaces_content(tmp_path: Path) -> None:
     path = tmp_path / "nested" / "note.md"
 

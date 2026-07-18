@@ -2,8 +2,9 @@
 
 ``update_folder_sync_state()`` used to mutate the loaded metadata dict and
 return without writing it back, so ``last_sync``/``synced_files`` silently
-vanished while the API layer logged success. These tests pin the write-back
-and the atomicity contract of the metadata writer.
+vanished while the API layer logged success. These tests pin the write-back.
+The atomicity contract of the shared writer lives in
+``tests/services/test_file_io.py``.
 """
 
 from __future__ import annotations
@@ -11,9 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
-from deeptutor.knowledge.manager import KnowledgeBaseManager, _write_json_atomic
+from deeptutor.knowledge.manager import KnowledgeBaseManager
 
 
 def _manager_with_linked_folder(tmp_path: Path) -> tuple[KnowledgeBaseManager, Path, str, Path]:
@@ -58,15 +57,3 @@ def test_update_folder_sync_state_unknown_folder_writes_nothing(tmp_path: Path) 
     manager.update_folder_sync_state("kb", "no-such-id", [str(doc)])
 
     assert metadata_file.read_bytes() == before
-
-
-def test_write_json_atomic_preserves_original_on_failure(tmp_path: Path) -> None:
-    target = tmp_path / "metadata.json"
-    target.write_text('{"ok": true}', encoding="utf-8")
-
-    with pytest.raises(TypeError):
-        _write_json_atomic(target, {"bad": object()})
-
-    assert json.loads(target.read_text(encoding="utf-8")) == {"ok": True}
-    # The failed write must not litter temp files next to the target.
-    assert [p.name for p in tmp_path.iterdir()] == ["metadata.json"]
