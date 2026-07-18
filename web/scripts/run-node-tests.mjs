@@ -51,4 +51,9 @@ if (testFiles.length === 0) {
   process.exit(1);
 }
 
-run(process.execPath, ["--test", ...testFiles]);
+run(process.execPath, [
+  "-r",
+  "./scripts/register-node-test-aliases.cjs",
+  "--test",
+  ...testFiles,
+]);
