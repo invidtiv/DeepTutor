@@ -1032,17 +1032,15 @@ class QuestionPipeline:
             pass
 
         chunks: list[str] = []
+        # Keep the latest usage frame only — some providers emit usage on
+        # multiple stream chunks; recording each one would N× inflate calls.
+        usage_seen = None
         try:
             response_stream = await client.chat.completions.create(**kwargs)
             async for chunk in response_stream:
-                # Usage frames have no choices; surface them to the usage
-                # tracker so the cost summary reflects the summarizer too.
                 usage_frame = getattr(chunk, "usage", None)
-                if usage_frame and self.usage is not None:
-                    try:
-                        self.usage.add_from_response(usage_frame)
-                    except Exception:
-                        logger.debug("usage recording failed for summarizer", exc_info=True)
+                if usage_frame is not None:
+                    usage_seen = usage_frame
                 if not getattr(chunk, "choices", None):
                     continue
                 delta = chunk.choices[0].delta
@@ -1058,6 +1056,11 @@ class QuestionPipeline:
                     stage=STAGE_EXPLORING,
                     metadata=merge_trace_metadata(meta, {"trace_kind": "llm_chunk"}),
                 )
+            if usage_seen is not None and self.usage is not None:
+                try:
+                    self.usage.add_from_response(usage_seen)
+                except Exception:
+                    logger.debug("usage recording failed for summarizer", exc_info=True)
         except Exception as exc:
             logger.warning("Tool summarizer failed for %s: %s", tool_name, exc)
             await stream.progress(

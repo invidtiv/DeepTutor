@@ -471,6 +471,11 @@ class AgentLoop:
             kwargs["tool_choice"] = "auto"
 
         before_usage_calls = self.pipeline.usage.calls
+        # Providers (esp. Gemini OpenAI-compat) may attach ``usage`` to more
+        # than one stream chunk. Keep the latest frame and record it once —
+        # same contract as ``run_labeled_step`` — so ``total_calls`` / tokens
+        # are not inflated by N× for a single completion.
+        usage_seen: Any = None
         text_parts: list[str] = []
         tool_acc: dict[int, dict[str, str]] = {}
         output_chars = 0
@@ -494,7 +499,7 @@ class AgentLoop:
             async for chunk in response_stream:
                 usage = getattr(chunk, "usage", None)
                 if usage is not None:
-                    self.pipeline.usage.add_from_response(usage)
+                    usage_seen = usage
                 choices = getattr(chunk, "choices", None) or []
                 if not choices:
                     continue
@@ -552,7 +557,9 @@ class AgentLoop:
 
         await _emit_segments(think_filter.flush())
         text = "".join(text_parts)
-        if self.pipeline.usage.calls == before_usage_calls:
+        if usage_seen is not None:
+            self.pipeline.usage.add_from_response(usage_seen)
+        elif self.pipeline.usage.calls == before_usage_calls:
             self.pipeline.usage.add_estimated(
                 input_chars=sum(_message_content_chars(message) for message in messages),
                 output_chars=output_chars,
