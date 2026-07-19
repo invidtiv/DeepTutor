@@ -577,11 +577,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     useState<EmbeddingCapabilities | null>(null);
   const [tourStepIndex, setTourStepIndex] = useState(-1);
   const eventSourceRef = useRef<EventSource | null>(null);
-  // Extensions register their latest dirty/save on each render. We track
-  // a "version" counter to trigger re-renders for `hasUnsavedChanges`
-  // when an extension's dirty flag flips.
+  // Extensions register their latest dirty/save on each render. Keep the
+  // derived dirty state explicit instead of using an indirect version counter.
   const extensionsRef = useRef<Map<string, SettingsExtension>>(new Map());
-  const [extensionsVersion, setExtensionsVersion] = useState(0);
+  const [hasDirtyExtension, setHasDirtyExtension] = useState(false);
   const registerExtension = useCallback(
     (key: string, ext: SettingsExtension | null) => {
       const map = extensionsRef.current;
@@ -589,17 +588,21 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       if (ext === null) {
         if (prev === undefined) return;
         map.delete(key);
-        setExtensionsVersion((n) => n + 1);
+        setHasDirtyExtension(
+          Array.from(map.values()).some((extension) => extension.dirty),
+        );
         return;
       }
       if (prev && prev.dirty === ext.dirty && prev.save === ext.save) {
         return;
       }
       map.set(key, ext);
-      // Only bump version when dirty flips — save fn changes every render
-      // are common and should not re-render the toolbar.
+      // Only recompute the dirty summary when dirty flips — save fn changes
+      // every render are common and should not re-render the toolbar.
       if (prev?.dirty !== ext.dirty) {
-        setExtensionsVersion((n) => n + 1);
+        setHasDirtyExtension(
+          Array.from(map.values()).some((extension) => extension.dirty),
+        );
       }
     },
     [],
@@ -1047,22 +1050,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     draft.services.embedding.active_model_id,
   ]);
 
+  const llmActiveProfileId = draft.services.llm.active_profile_id;
+  const llmActiveModelId = draft.services.llm.active_model_id;
   useEffect(() => {
     setLlmContextDetection((current) => {
       if (!current) return null;
-      const llm = draft.services.llm;
       if (
-        current.profileId === llm.active_profile_id &&
-        current.modelId === llm.active_model_id
+        current.profileId === llmActiveProfileId &&
+        current.modelId === llmActiveModelId
       ) {
         return current;
       }
       return null;
     });
-  }, [
-    draft.services.llm.active_profile_id,
-    draft.services.llm.active_model_id,
-  ]);
+  }, [llmActiveProfileId, llmActiveModelId]);
 
   const runDetailedTest = useCallback(
     async (service: ServiceName) => {
@@ -1252,17 +1253,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   // ── Derived ─────────────────────────────────────────────────────────────
   const hasUnsavedChanges = useMemo(() => {
-    const catalogDirty =
-      catalogEditable === true &&
-      JSON.stringify(catalog) !== JSON.stringify(draft);
-    if (catalogDirty) return true;
-    // Any registered extension dirty also counts. Reading from the ref is
-    // safe because `extensionsVersion` invalidates this memo on flip.
-    for (const ext of extensionsRef.current.values()) {
-      if (ext.dirty) return true;
-    }
-    return false;
-  }, [catalog, catalogEditable, draft, extensionsVersion]);
+    return (
+      hasDirtyExtension ||
+      (catalogEditable === true &&
+        JSON.stringify(catalog) !== JSON.stringify(draft))
+    );
+  }, [catalog, catalogEditable, draft, hasDirtyExtension]);
 
   const settingsLoading = catalogEditable === null;
 

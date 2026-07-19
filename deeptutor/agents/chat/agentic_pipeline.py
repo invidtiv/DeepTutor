@@ -442,6 +442,7 @@ class AgenticChatPipeline:
         return str((context.metadata or {}).get("source") or "") == "partner"
 
     async def _prepare_deferred_tools(self, context: UnifiedContext) -> None:
+        self._pageindex_docs = {}
         try:
             from deeptutor.services.mcp import get_mcp_manager, load_loaded_tools
 
@@ -460,7 +461,26 @@ class AgenticChatPipeline:
             )
             user_allowed = None if self._is_partner_turn(context) else allowed_mcp_tools()
             allowed: set[str] | None = combine_whitelists(caller_allowed, user_allowed)
+
+            # Narrowed implicit grant: a turn with a PageIndex KB
+            # attached is authorized to use the built-in pageindex MCP
+            # server's tools — access to the KB is the permission. The tools
+            # are also preloaded (no load_tools round-trip) so retrieval
+            # works on the first turn.
+            self._pageindex_docs = self._pageindex_doc_maps(context)
             pool = self.registry.deferred_tools()
+            pageindex_tools: set[str] = set()
+            if self._pageindex_docs:
+                from deeptutor.services.mcp.pageindex_server import PAGEINDEX_SERVER_NAME
+
+                pageindex_tools = {
+                    t.get_definition().name
+                    for t in pool
+                    if getattr(t, "server_name", "") == PAGEINDEX_SERVER_NAME
+                }
+                if allowed is not None:
+                    allowed = allowed | pageindex_tools
+
             if allowed is not None:
                 pool = [t for t in pool if t.get_definition().name in allowed]
             self._deferred_pool = pool
@@ -470,12 +490,31 @@ class AgenticChatPipeline:
             self._deferred_loader = DeferredToolLoader(
                 registry=self.registry,
                 session_id=context.session_id,
-                loaded=load_loaded_tools(context.session_id),
+                loaded=load_loaded_tools(context.session_id) | pageindex_tools,
                 allowed=allowed,
             )
         except Exception:
             logger.warning("deferred-tool preparation failed", exc_info=True)
             self._deferred_loader = None
+
+    def _pageindex_doc_maps(self, context: UnifiedContext) -> dict[str, dict[str, str]]:
+        """kb_name -> {file: doc_id} for bound KBs on the pageindex provider."""
+        out: dict[str, dict[str, str]] = {}
+        for kb in self._selected_kbs(context):
+            try:
+                from deeptutor.multi_user.knowledge_access import resolve_kb
+                from deeptutor.services.rag.factory import PAGEINDEX_PROVIDER
+                from deeptutor.services.rag.pipelines.pageindex.pipeline import PageIndexPipeline
+                from deeptutor.services.rag.provider_binding import resolve_bound_provider
+
+                resource = resolve_kb(kb, require_write=False)
+                base_dir = str(resource.base_dir)
+                if resolve_bound_provider(base_dir, resource.name) != PAGEINDEX_PROVIDER:
+                    continue
+                out[kb] = PageIndexPipeline(kb_base_dir=base_dir).document_map(resource.name)
+            except Exception:
+                logger.debug("pageindex doc-map resolution failed for %r", kb, exc_info=True)
+        return out
 
     def _deferred_tools_manifest(self) -> str:
         if self._deferred_loader is None:
@@ -525,7 +564,9 @@ class AgenticChatPipeline:
             requested_tools=context.enabled_tools,
             optional_whitelist=CHAT_OPTIONAL_TOOLS,
             mount_flags=ToolMountFlags(
-                has_kb=bool(self._selected_kbs(context)),
+                # PageIndex KBs are read via the preloaded MCP tools, not rag —
+                # a conversation with only PageIndex KBs doesn't mount rag at all.
+                has_kb=bool(self._rag_kbs(context)),
                 # read_source is owned by the explore_context pre-pass (it runs
                 # the investigation over attached sources), not the answer loop.
                 # Keep it off the answer surface even when sources are present.
@@ -631,7 +672,7 @@ class AgenticChatPipeline:
         context: UnifiedContext,
     ) -> list[dict[str, Any]]:
         schemas = self.registry.build_openai_schemas(enabled_tools)
-        kb_choices = self._selected_kbs(context)
+        kb_choices = self._rag_kbs(context)
         notebook_choices = self._notebook_choices()
         for schema in schemas:
             function = schema.get("function") if isinstance(schema, dict) else None
@@ -1218,6 +1259,11 @@ class AgenticChatPipeline:
     def _selected_kbs(context: UnifiedContext) -> list[str]:
         return [str(kb).strip() for kb in context.knowledge_bases if str(kb).strip()]
 
+    def _rag_kbs(self, context: UnifiedContext) -> list[str]:
+        """Attached KBs served by the rag tool (PageIndex KBs are read via MCP)."""
+        pageindex = getattr(self, "_pageindex_docs", None) or {}
+        return [kb for kb in self._selected_kbs(context) if kb not in pageindex]
+
     @staticmethod
     def _workspace_key(context: UnifiedContext) -> str:
         raw = str(
@@ -1232,13 +1278,52 @@ class AgenticChatPipeline:
     def _kb_system_note(self, context: UnifiedContext) -> str:
         if self._exclusive_capability_active(context):
             return ""
-        kbs = self._selected_kbs(context)
-        if not kbs:
+        if not self._selected_kbs(context):
             return ""
-        joined = ", ".join(kbs)
+        rag_note = ""
+        rag_kbs = self._rag_kbs(context)
+        if rag_kbs:
+            joined = ", ".join(rag_kbs)
+            rag_note = (
+                f"用户已挂载知识库：{joined}。调用 rag 时，kb_name 必须从其中选一个。"
+                if self.language == "zh"
+                else (
+                    f"Attached knowledge bases: {joined}. When calling rag, kb_name "
+                    "must be one of these names."
+                )
+            )
+        return rag_note + self._pageindex_system_note()
+
+    def _pageindex_system_note(self) -> str:
+        """Doc list + retrieval instructions for attached PageIndex KBs.
+
+        Populated by ``_prepare_deferred_tools`` once per turn, so the system
+        prompt stays byte-stable for the whole turn (KB cache prefix).
+        """
+        doc_maps = getattr(self, "_pageindex_docs", None) or {}
+        if not doc_maps:
+            return ""
+        lines = []
+        for kb, doc_map in sorted(doc_maps.items()):
+            listed = "; ".join(
+                f"{name} (doc_id: {doc_id})" for name, doc_id in sorted(doc_map.items())
+            )
+            lines.append(f"- {kb}: {listed or '(no indexed documents)'}")
+        docs_block = "\n".join(lines)
         if self.language == "zh":
-            return f"用户已挂载知识库：{joined}。调用 rag 时，kb_name 必须从其中选一个。"
-        return f"Attached knowledge bases: {joined}. When calling rag, kb_name must be one of these names."
+            return (
+                "\n以下知识库使用托管的 PageIndex 引擎，其文档通过已加载的 "
+                "PageIndex MCP 工具阅读：先用 mcp_pageindex_get_document_structure "
+                "查看结构，再用 mcp_pageindex_get_page_content 读取相关页面。文档清单：\n"
+                f"{docs_block}"
+            )
+        return (
+            "\nThe following knowledge bases are on the hosted PageIndex engine; read "
+            "their documents with the preloaded PageIndex MCP tools: "
+            "mcp_pageindex_get_document_structure for the outline, then "
+            "mcp_pageindex_get_page_content for the relevant pages. Documents:\n"
+            f"{docs_block}"
+        )
 
     def _workspace_system_note(self, context: UnifiedContext) -> str:
         if not getattr(self, "_exec_enabled", False):

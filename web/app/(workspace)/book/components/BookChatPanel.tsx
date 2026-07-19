@@ -31,6 +31,7 @@ import {
   readFileAsDataUrl,
 } from "@/lib/file-attachments";
 import { shouldSubmitOnEnter } from "@/lib/composer-keyboard";
+import { useImeComposing } from "@/lib/use-ime-composing";
 import { shouldAppendEventContent } from "@/lib/stream";
 import {
   UnifiedWSClient,
@@ -115,7 +116,8 @@ export default function BookChatPanel({
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const isComposingRef = useRef(false);
+  const { isComposingRef, onCompositionStart, onCompositionEnd } =
+    useImeComposing();
 
   useEffect(() => {
     const raw = window.localStorage.getItem("deeptutor.bookChat.width");
@@ -560,14 +562,8 @@ export default function BookChatPanel({
             placeholder={t("Ask about this page…")}
             rows={1}
             onPaste={handlePaste}
-            onCompositionStart={() => {
-              isComposingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              setTimeout(() => {
-                isComposingRef.current = false;
-              }, 0);
-            }}
+            onCompositionStart={onCompositionStart}
+            onCompositionEnd={onCompositionEnd}
             onKeyDown={(e: KeyboardEvent<HTMLTextAreaElement>) => {
               if (shouldSubmitOnEnter(e, isComposingRef.current)) {
                 e.preventDefault();

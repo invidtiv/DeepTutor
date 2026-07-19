@@ -25,6 +25,7 @@ from deeptutor.knowledge.kb_types import (
     external_root_of,
     is_connected_kb,
 )
+from deeptutor.services.file_io import atomic_write_json
 from deeptutor.services.rag.factory import (
     DEFAULT_PROVIDER,
     KNOWN_PROVIDERS,
@@ -85,7 +86,9 @@ def _detect_provider_from_versions(versions: list[dict[str, Any]]) -> str:
     return DEFAULT_PROVIDER
 
 
-# Cross-platform file locking
+# Cross-platform file locking. Writers no longer take locks — every JSON
+# write in this module goes through ``atomic_write_json`` (temp file +
+# ``os.replace``), so readers always see a complete previous or new file.
 @contextmanager
 def file_lock_shared(file_handle):
     """Acquire a shared (read) lock on a file - cross-platform."""
@@ -102,28 +105,6 @@ def file_lock_shared(file_handle):
         import fcntl
 
         fcntl.flock(file_handle.fileno(), fcntl.LOCK_SH)
-        try:
-            yield
-        finally:
-            fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
-
-
-@contextmanager
-def file_lock_exclusive(file_handle):
-    """Acquire an exclusive (write) lock on a file - cross-platform."""
-    if sys.platform == "win32":
-        import msvcrt
-
-        msvcrt.locking(file_handle.fileno(), msvcrt.LK_NBLCK, 1)
-        try:
-            yield
-        finally:
-            file_handle.seek(0)
-            msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
-    else:
-        import fcntl
-
-        fcntl.flock(file_handle.fileno(), fcntl.LOCK_EX)
         try:
             yield
         finally:
@@ -346,11 +327,7 @@ class KnowledgeBaseManager:
 
                 if config_changed:
                     try:
-                        with open(self.config_file, "w", encoding="utf-8") as f:
-                            with file_lock_exclusive(f):
-                                json.dump(config, f, indent=2, ensure_ascii=False)
-                                f.flush()
-                                os.fsync(f.fileno())
+                        atomic_write_json(self.config_file, config)
                     except Exception as save_err:
                         logger.warning(f"Failed to persist normalized KB config: {save_err}")
 
@@ -361,13 +338,13 @@ class KnowledgeBaseManager:
         return {"knowledge_bases": {}}
 
     def _save_config(self):
-        """Save knowledge base configuration (thread-safe with file locking)"""
-        # Use exclusive lock for writing
-        with open(self.config_file, "w", encoding="utf-8") as f:
-            with file_lock_exclusive(f):
-                json.dump(self.config, f, indent=2, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())  # Ensure data is written to disk
+        """Save knowledge base configuration.
+
+        Written via temp-file + ``os.replace`` so concurrent readers only
+        ever see the previous or the new file — ``open(..., "w")`` used to
+        truncate the config before the lock was even acquired.
+        """
+        atomic_write_json(self.config_file, self.config)
 
     def _sync_kb_to_pb(self, name: str, kb_entry: dict) -> None:
         """
@@ -1462,9 +1439,7 @@ class KnowledgeBaseManager:
         }
         metadata["linked_folders"].append(folder_info)
 
-        # Save metadata
-        with open(metadata_file, "w", encoding="utf-8") as fp:
-            json.dump(metadata, fp, indent=2, ensure_ascii=False)
+        atomic_write_json(metadata_file, metadata)
 
         return folder_info
 
@@ -1528,8 +1503,7 @@ class KnowledgeBaseManager:
 
         metadata["linked_folders"] = new_linked
 
-        with open(metadata_file, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        atomic_write_json(metadata_file, metadata)
 
         return True
 
@@ -1667,6 +1641,7 @@ class KnowledgeBaseManager:
 
                 folder["synced_files"] = file_states
                 folder["file_count"] = len(file_states)
+                atomic_write_json(metadata_file, metadata)
                 break
 
 

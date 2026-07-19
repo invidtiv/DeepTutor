@@ -24,7 +24,20 @@ import {
 import { validateFiles } from "@/lib/knowledge-helpers";
 import FileDropZone from "./FileDropZone";
 
-const PAGEINDEX_FORMATS = [".pdf", ".md", ".markdown"];
+// Mirrors SUPPORTED_EXTENSIONS in the backend pageindex pipeline (PageIndex POST /doc/).
+const PAGEINDEX_FORMATS = [
+  ".pdf",
+  ".md",
+  ".markdown",
+  ".txt",
+  ".docx",
+  ".doc",
+  ".pptx",
+  ".ppt",
+  ".xlsx",
+  ".xls",
+  ".csv",
+];
 const OBSIDIAN_SOURCE = "obsidian";
 const LIGHTRAG_SERVER_PROVIDER = "lightrag-server";
 const EXAMPLE_INDEX_PATH = "/Users/you/knowledge_bases/my-kb";
@@ -550,7 +563,7 @@ function NewModeFields({
             {t("Initial documents")}
             {isPageIndex && (
               <span className="ml-2 normal-case tracking-normal text-[var(--muted-foreground)]/80">
-                · {t("PDF and Markdown only")}
+                · {t("PDF, Office, text and Markdown")}
               </span>
             )}
           </label>

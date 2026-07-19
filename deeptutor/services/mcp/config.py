@@ -44,6 +44,9 @@ class MCPServerConfig(BaseModel):
     # behaviour
     tool_timeout: int = Field(default=30, ge=1, le=600)
     enabled_tools: list[str] = Field(default_factory=lambda: ["*"])
+    # Blocklist applied after ``enabled_tools`` — for "everything except X"
+    # entries (used by the built-in pageindex server).
+    disabled_tools: list[str] = Field(default_factory=list)
     enabled: bool = True
 
     @field_validator("command", "url", "cwd", mode="before")
@@ -69,6 +72,9 @@ class MCPServerConfig(BaseModel):
         )
 
     def tool_allowed(self, raw_name: str, wrapped_name: str) -> bool:
+        blocked = set(self.disabled_tools or [])
+        if raw_name in blocked or wrapped_name in blocked:
+            return False
         allowed = set(self.enabled_tools or ["*"])
         return "*" in allowed or raw_name in allowed or wrapped_name in allowed
 

@@ -28,6 +28,7 @@ import {
   readFileAsDataUrl,
 } from "@/lib/file-attachments";
 import { useAutoSizedTextarea } from "@/lib/use-auto-sized-textarea";
+import { useImeComposing } from "@/lib/use-ime-composing";
 
 export interface PartnerPendingAttachment {
   type: "image" | "file";
@@ -66,7 +67,8 @@ export const PartnerComposer = memo(function PartnerComposer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounterRef = useRef(0);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isComposingRef = useRef(false);
+  const { isComposingRef, onCompositionStart, onCompositionEnd } =
+    useImeComposing();
 
   useAutoSizedTextarea(textareaRef, input, { min: 24, max: 180 });
 
@@ -230,7 +232,14 @@ export const PartnerComposer = memo(function PartnerComposer({
         submit();
       }
     },
-    [acceptCommand, boundedSlashIndex, slashMatches, slashOpen, submit],
+    [
+      acceptCommand,
+      boundedSlashIndex,
+      slashMatches,
+      slashOpen,
+      submit,
+      isComposingRef,
+    ],
   );
 
   const handleInputChange = useCallback(
@@ -390,14 +399,8 @@ export const PartnerComposer = memo(function PartnerComposer({
         onChange={handleInputChange}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
-        onCompositionStart={() => {
-          isComposingRef.current = true;
-        }}
-        onCompositionEnd={() => {
-          setTimeout(() => {
-            isComposingRef.current = false;
-          }, 0);
-        }}
+        onCompositionStart={onCompositionStart}
+        onCompositionEnd={onCompositionEnd}
         placeholder={placeholder ?? t("Type a message...")}
         rows={1}
         maxLength={32000}

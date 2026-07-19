@@ -4,9 +4,9 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path
-import tempfile
 from typing import Any, Callable
 
+from deeptutor.services.file_io import atomic_write_json as _atomic_write_json
 from deeptutor.services.path_service import get_path_service
 
 from .origins import normalize_origins
@@ -281,20 +281,6 @@ def _json_object(path: Path) -> dict[str, Any]:
     except Exception:
         return {}
     return loaded if isinstance(loaded, dict) else {}
-
-
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w",
-        encoding="utf-8",
-        dir=str(path.parent),
-        delete=False,
-    ) as handle:
-        json.dump(payload, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
-        tmp_path = Path(handle.name)
-    tmp_path.replace(path)
 
 
 def _string(value: Any) -> str:

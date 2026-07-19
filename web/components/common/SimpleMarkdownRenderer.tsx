@@ -3,10 +3,12 @@
 import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { findCitationAnchor } from "@/lib/markdown-anchors";
 import {
   citationAnchorIdFor,
   markdownUrlTransform,
   normalizeMarkdownForDisplay,
+  safeDecodeURIComponent,
 } from "@/lib/markdown-display";
 import {
   InlineFileCard,
@@ -361,19 +363,7 @@ export default function SimpleMarkdownRenderer({
         const ids = label.split(/\s*,\s*/);
         const scrollToRef = (event: React.MouseEvent, id?: string) => {
           event.preventDefault();
-          const hashTarget =
-            id && citationAnchorIdFor(id)
-              ? citationAnchorIdFor(id)
-              : href?.startsWith("#")
-                ? decodeURIComponent(href.slice(1))
-                : "references";
-          const target =
-            document.getElementById(hashTarget || "") ??
-            document.getElementById("references");
-          const parentDetails = target?.closest("details");
-          if (parentDetails instanceof HTMLDetailsElement) {
-            parentDetails.open = true;
-          }
+          const target = findCitationAnchor(href, id);
           target?.scrollIntoView({ block: "start", behavior: "smooth" });
         };
         return (
@@ -425,7 +415,7 @@ export default function SimpleMarkdownRenderer({
             if (!isHashLink || !href) return;
 
             event.preventDefault();
-            const targetId = decodeURIComponent(href.slice(1));
+            const targetId = safeDecodeURIComponent(href.slice(1));
             const target = document.getElementById(targetId);
             target?.scrollIntoView({ block: "start", behavior: "smooth" });
           }}
