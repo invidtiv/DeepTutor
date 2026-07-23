@@ -236,7 +236,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         env_key="",
         display_name="OpenAI Codex",
         backend="openai_codex",
-        detect_by_base_keyword="codex",
         is_oauth=True,
         default_api_base="https://chatgpt.com/backend-api",
     ),

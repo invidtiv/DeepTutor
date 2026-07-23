@@ -8,3 +8,7 @@ def test_nvidia_nim_gateway_detection_by_key_and_base() -> None:
     assert spec.supports_stream_options is False
     assert find_gateway(api_key="nvapi-test-key") == spec
     assert find_gateway(api_base="https://integrate.api.nvidia.com/v1") == spec
+
+
+def test_openai_codex_is_not_detected_from_api_base() -> None:
+    assert find_gateway(api_base="https://codex.example.com/v1") is None
