@@ -4,6 +4,8 @@ Root conftest — shared fixtures for the entire test suite.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -12,6 +14,33 @@ import pytest
 from deeptutor.core.capability_protocol import BaseCapability, CapabilityManifest
 from deeptutor.core.context import Attachment, UnifiedContext
 from deeptutor.core.stream_bus import StreamBus
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Keep targeted pytest runs compatible without requiring pytest-asyncio."""
+
+    parser.addini(
+        "asyncio_default_fixture_loop_scope",
+        "Compatibility placeholder for pytest-asyncio-aware configs.",
+        default="function",
+    )
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pyfunc_call(pyfuncitem: pytest.Function):
+    """Run coroutine tests under plain pytest when pytest-asyncio is absent."""
+
+    pluginmanager = pyfuncitem.config.pluginmanager
+    if pluginmanager.hasplugin("asyncio") or pluginmanager.hasplugin("pytest_asyncio"):
+        return None
+
+    if not inspect.iscoroutinefunction(pyfuncitem.obj):
+        return None
+
+    funcargs = {name: pyfuncitem.funcargs[name] for name in pyfuncitem._fixtureinfo.argnames}
+    asyncio.run(pyfuncitem.obj(**funcargs))
+    return True
+
 
 # ---------------------------------------------------------------------------
 # Multi-user legacy migration guard

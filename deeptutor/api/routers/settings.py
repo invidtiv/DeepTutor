@@ -97,6 +97,28 @@ class UISettings(BaseModel):
     language: Literal["zh", "en"] = "en"
     sidebar_description: Optional[str] = None
     sidebar_nav_order: Optional[SidebarNavOrder] = None
+    code_block_theme: Optional[str] = None
+    code_block_show_line_numbers: Optional[bool] = None
+    code_block_wrap_long_lines: Optional[bool] = None
+
+
+class UISettingsUpdate(BaseModel):
+    """Partial UI settings for user-initiated PATCH/PUT updates via /api/v1/settings/ui.
+
+    All fields have None defaults so `model_dump(exclude_unset=True)` naturally
+    excludes fields not provided in the frontend payload, while explicitly provided
+    defaults (e.g., `theme: "snow"`) still update the backend. This separates
+    the semantic contract: `/ui` endpoint only merges whatever explicitly arrives
+    from the frontend.
+    """
+
+    theme: str | None = None
+    language: str | None = None
+    sidebar_description: str | None = None
+    sidebar_nav_order: SidebarNavOrder | None = None
+    code_block_theme: str | None = None
+    code_block_show_line_numbers: bool | None = None
+    code_block_wrap_long_lines: bool | None = None
 
 
 class VoiceAutoplayUpdate(BaseModel):
@@ -1023,9 +1045,16 @@ async def update_chat_response_timeout(update: ChatResponseTimeoutUpdate):
 
 
 @router.put("/ui")
-async def update_ui_settings(update: UISettings):
+async def update_ui_settings(update: UISettingsUpdate):
+    """Merge frontend partial update into current UI settings.
+
+    Uses exclude_unset=True semantics so that only fields explicitly provided
+    by the frontend override saved values. Fields not in the frontend payload
+    (even if they equal the model defaults) are omitted from the merge.
+    """
     current_ui = load_ui_settings()
-    current_ui.update(update.model_dump(exclude_none=True))
+    dump = update.model_dump(exclude_unset=True)  # Only merge explicitly provided fields
+    current_ui.update(dump)
     save_ui_settings(current_ui)
     return current_ui
 

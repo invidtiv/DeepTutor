@@ -544,6 +544,9 @@ export default function RichMarkdownRenderer({
       }
 
       if (isMultiline) {
+        // Code-block appearance settings apply only when rich code rendering is enabled.
+        // This static fallback keeps disabled-code surfaces readable without
+        // silently applying syntax theme, line-number, or wrapping preferences.
         return (
           <div
             className={`md-code-block ${gap} overflow-hidden rounded-xl border border-[var(--border)] bg-[#1f2937]`}

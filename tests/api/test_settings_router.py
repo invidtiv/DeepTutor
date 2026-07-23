@@ -689,3 +689,56 @@ async def test_fetch_models_maps_provider_error_to_502(monkeypatch: pytest.Monke
             settings_router.FetchModelsPayload(binding="custom", base_url="https://x/v1")
         )
     assert exc_info.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_update_ui_settings_preserves_theme_and_language_when_code_block_update_omits_them(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    # Given: stored appearance settings differ from the UI defaults.
+    settings_file = tmp_path / "interface.json"
+    monkeypatch.setattr(settings_router, "_settings_file", lambda: settings_file)
+    settings_router.save_ui_settings(
+        {
+            **settings_router.DEFAULT_UI_SETTINGS,
+            "theme": "dark",
+            "language": "zh",
+        }
+    )
+
+    # When: a code-block-only partial update arrives.
+    response = await settings_router.update_ui_settings(
+        settings_router.UISettingsUpdate(code_block_theme="dracula")
+    )
+
+    # Then: omitted appearance settings remain unchanged while the patch persists.
+    persisted = settings_router.load_ui_settings()
+    assert response["theme"] == "dark"
+    assert response["language"] == "zh"
+    assert persisted["code_block_theme"] == "dracula"
+
+
+@pytest.mark.asyncio
+async def test_update_ui_settings_persists_explicit_theme_and_language_defaults(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    # Given: stored appearance settings differ from the values being reset.
+    settings_file = tmp_path / "interface.json"
+    monkeypatch.setattr(settings_router, "_settings_file", lambda: settings_file)
+    settings_router.save_ui_settings(
+        {
+            **settings_router.DEFAULT_UI_SETTINGS,
+            "theme": "dark",
+            "language": "zh",
+        }
+    )
+
+    # When: the frontend explicitly provides the full-model default values.
+    await settings_router.update_ui_settings(
+        settings_router.UISettingsUpdate(theme="snow", language="en")
+    )
+
+    # Then: explicit values persist instead of being mistaken for omitted fields.
+    persisted = settings_router.load_ui_settings()
+    assert persisted["theme"] == "snow"
+    assert persisted["language"] == "en"

@@ -13,20 +13,27 @@ import {
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
-import { writeStoredLanguage } from "@/context/app-shell-storage";
+import type { CodeBlockThemeId } from "@/components/common/code-block-themes";
+import {
+  DEFAULT_CODE_BLOCK_SHOW_LINE_NUMBERS,
+  DEFAULT_CODE_BLOCK_WRAP_LONG_LINES,
+  normalizeCodeBlockTheme,
+  readStoredCodeBlockShowLineNumbers,
+  readStoredCodeBlockTheme,
+  readStoredCodeBlockWrapLongLines,
+  writeStoredCodeBlockShowLineNumbers,
+  writeStoredCodeBlockTheme,
+  writeStoredCodeBlockWrapLongLines,
+  writeStoredLanguage,
+} from "@/context/app-shell-storage";
+import { useAppShell } from "@/context/AppShellContext";
 import { apiFetch, apiUrl } from "@/lib/api";
 import { setTheme as applyThemePreference } from "@/lib/theme";
 
 // ─── Domain types ─────────────────────────────────────────────────────────
 
 export type ServiceName =
-  | "llm"
-  | "embedding"
-  | "search"
-  | "tts"
-  | "stt"
-  | "imagegen"
-  | "videogen";
+  "llm" | "embedding" | "search" | "tts" | "stt" | "imagegen" | "videogen";
 
 export type CatalogModel = {
   id: string;
@@ -100,7 +107,50 @@ export type Catalog = {
 export type UiSettings = {
   theme: "light" | "dark" | "glass" | "snow";
   language: "en" | "zh";
+  code_block_theme: string;
+  code_block_show_line_numbers: boolean;
+  code_block_wrap_long_lines: boolean;
 };
+
+type CodeBlockUiSettings = Pick<
+  UiSettings,
+  | "code_block_theme"
+  | "code_block_show_line_numbers"
+  | "code_block_wrap_long_lines"
+>;
+
+type UiSettingsPatch = Partial<UiSettings>;
+
+export function syncLoadedCodeBlockSettingsToAppShell(
+  ui: Partial<CodeBlockUiSettings>,
+): CodeBlockUiSettings {
+  const normalized = {
+    code_block_theme: normalizeCodeBlockTheme(ui.code_block_theme),
+    code_block_show_line_numbers:
+      ui.code_block_show_line_numbers === true ||
+      String(ui.code_block_show_line_numbers).toLowerCase() === "true",
+    code_block_wrap_long_lines:
+      ui.code_block_wrap_long_lines === true ||
+      String(ui.code_block_wrap_long_lines).toLowerCase() === "true",
+  };
+
+  writeStoredCodeBlockTheme(normalized.code_block_theme);
+  writeStoredCodeBlockShowLineNumbers(normalized.code_block_show_line_numbers);
+  writeStoredCodeBlockWrapLongLines(normalized.code_block_wrap_long_lines);
+
+  return normalized;
+}
+
+export async function persistUiSettingsPatch(
+  patch: UiSettingsPatch,
+  fetcher: typeof apiFetch = apiFetch,
+): Promise<void> {
+  await fetcher(apiUrl("/api/v1/settings/ui"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
 
 export type ProviderOption = {
   value: string;
@@ -136,10 +186,7 @@ export type DiagnosticsResult = {
 };
 
 export type ServiceReadiness =
-  | "not_configured"
-  | "untested"
-  | "passed"
-  | "failed";
+  "not_configured" | "untested" | "passed" | "failed";
 
 type SettingsPayload = {
   ui: UiSettings;
@@ -389,12 +436,18 @@ type SettingsContextValue = {
   hasUnsavedChanges: boolean;
   theme: UiSettings["theme"];
   language: UiSettings["language"];
+  codeBlockTheme: UiSettings["code_block_theme"];
+  codeBlockShowLineNumbers: UiSettings["code_block_show_line_numbers"];
+  codeBlockWrapLongLines: UiSettings["code_block_wrap_long_lines"];
   toast: string;
   setToast: (value: string) => void;
 
   // UI prefs
   updateTheme: (next: UiSettings["theme"]) => Promise<void>;
   updateLanguage: (next: UiSettings["language"]) => Promise<void>;
+  updateCodeBlockTheme: (next: CodeBlockThemeId) => Promise<void>;
+  updateCodeBlockShowLineNumbers: (next: boolean) => Promise<void>;
+  updateCodeBlockWrapLongLines: (next: boolean) => Promise<void>;
 
   // Catalog mutation
   mutateCatalog: (mutator: (next: Catalog) => void) => void;
@@ -466,10 +519,24 @@ export function useSettings(): SettingsContextValue {
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const router = useRouter();
+  const {
+    setCodeBlockTheme: setAppShellCodeBlockTheme,
+    setCodeBlockShowLineNumbers: setAppShellCodeBlockShowLineNumbers,
+    setCodeBlockWrapLongLines: setAppShellCodeBlockWrapLongLines,
+  } = useAppShell();
 
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [theme, setTheme] = useState<UiSettings["theme"]>("snow");
   const [language, setLanguage] = useState<UiSettings["language"]>("en");
+  const [codeBlockTheme, setCodeBlockTheme] = useState<
+    UiSettings["code_block_theme"]
+  >(() => readStoredCodeBlockTheme());
+  const [codeBlockShowLineNumbers, setCodeBlockShowLineNumbers] = useState<
+    UiSettings["code_block_show_line_numbers"]
+  >(DEFAULT_CODE_BLOCK_SHOW_LINE_NUMBERS);
+  const [codeBlockWrapLongLines, setCodeBlockWrapLongLines] = useState<
+    UiSettings["code_block_wrap_long_lines"]
+  >(DEFAULT_CODE_BLOCK_WRAP_LONG_LINES);
   const [catalog, setCatalog] = useState<Catalog>(defaultCatalog());
   const [draft, setDraft] = useState<Catalog>(defaultCatalog());
   const [catalogEditable, setCatalogEditable] = useState<boolean | null>(null);
@@ -556,6 +623,23 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       }
       setTheme(payload.ui.theme);
       setLanguage(payload.ui.language);
+      const syncedCodeBlockSettings = syncLoadedCodeBlockSettingsToAppShell(
+        payload.ui,
+      );
+      setAppShellCodeBlockTheme(syncedCodeBlockSettings.code_block_theme);
+      setAppShellCodeBlockShowLineNumbers(
+        syncedCodeBlockSettings.code_block_show_line_numbers,
+      );
+      setAppShellCodeBlockWrapLongLines(
+        syncedCodeBlockSettings.code_block_wrap_long_lines,
+      );
+      setCodeBlockTheme(syncedCodeBlockSettings.code_block_theme);
+      setCodeBlockShowLineNumbers(
+        syncedCodeBlockSettings.code_block_show_line_numbers,
+      );
+      setCodeBlockWrapLongLines(
+        syncedCodeBlockSettings.code_block_wrap_long_lines,
+      );
       if (payload.providers) setProviders(payload.providers);
       settingsLoaded = true;
     } catch (err) {
@@ -587,10 +671,24 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         );
       }
     }
-  }, [t]);
+  }, [
+    setAppShellCodeBlockShowLineNumbers,
+    setAppShellCodeBlockTheme,
+    setAppShellCodeBlockWrapLongLines,
+    t,
+  ]);
 
   // Load settings + status once on mount. Subsequent navigations between
   // settings sub-pages share this state via the layout-level provider.
+  useEffect(() => {
+    // Hydrate client-only switch state after the SSR-safe first render. Reading
+    // localStorage in the initial state can leave React with server-rendered
+    // aria-checked="false" DOM when the persisted client value is already true.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCodeBlockShowLineNumbers(readStoredCodeBlockShowLineNumbers());
+    setCodeBlockWrapLongLines(readStoredCodeBlockWrapLongLines());
+  }, []);
+
   useEffect(() => {
     loadSettings();
     return () => {
@@ -616,37 +714,35 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, [diagnosticsResults]);
 
   // ── UI preferences ──────────────────────────────────────────────────────
-  const persistUi = useCallback(
-    async (
-      nextTheme: UiSettings["theme"],
-      nextLanguage: UiSettings["language"],
-    ) => {
-      await apiFetch(apiUrl("/api/v1/settings/ui"), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ theme: nextTheme, language: nextLanguage }),
-      });
-    },
-    [],
-  );
+  const updateTheme = useCallback(async (next: UiSettings["theme"]) => {
+    setTheme(next);
+    applyThemePreference(next);
+    await persistUiSettingsPatch({ theme: next });
+  }, []);
 
-  const updateTheme = useCallback(
-    async (next: UiSettings["theme"]) => {
-      setTheme(next);
-      applyThemePreference(next);
-      await persistUi(next, language);
-    },
-    [language, persistUi],
-  );
+  const updateLanguage = useCallback(async (next: UiSettings["language"]) => {
+    setLanguage(next);
+    writeStoredLanguage(next);
+    await persistUiSettingsPatch({ language: next });
+  }, []);
 
-  const updateLanguage = useCallback(
-    async (next: UiSettings["language"]) => {
-      setLanguage(next);
-      writeStoredLanguage(next);
-      await persistUi(theme, next);
-    },
-    [persistUi, theme],
-  );
+  const updateCodeBlockTheme = useCallback(async (next: CodeBlockThemeId) => {
+    setCodeBlockTheme(next);
+    writeStoredCodeBlockTheme(next);
+    await persistUiSettingsPatch({ code_block_theme: next });
+  }, []);
+
+  const updateCodeBlockShowLineNumbers = useCallback(async (next: boolean) => {
+    setCodeBlockShowLineNumbers(next);
+    writeStoredCodeBlockShowLineNumbers(next);
+    await persistUiSettingsPatch({ code_block_show_line_numbers: next });
+  }, []);
+
+  const updateCodeBlockWrapLongLines = useCallback(async (next: boolean) => {
+    setCodeBlockWrapLongLines(next);
+    writeStoredCodeBlockWrapLongLines(next);
+    await persistUiSettingsPatch({ code_block_wrap_long_lines: next });
+  }, []);
 
   // ── Catalog mutators ────────────────────────────────────────────────────
   const mutateCatalog = useCallback((mutator: (next: Catalog) => void) => {
@@ -1161,10 +1257,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       hasUnsavedChanges,
       theme,
       language,
+      codeBlockTheme,
+      codeBlockShowLineNumbers,
+      codeBlockWrapLongLines,
       toast,
       setToast,
       updateTheme,
       updateLanguage,
+      updateCodeBlockTheme,
+      updateCodeBlockShowLineNumbers,
+      updateCodeBlockWrapLongLines,
       mutateCatalog,
       addProfile,
       removeActiveProfile,
@@ -1201,6 +1303,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       applying,
       catalog,
       catalogEditable,
+      codeBlockShowLineNumbers,
+      codeBlockTheme,
+      codeBlockWrapLongLines,
       diagnosticsResults,
       draft,
       embeddingCapabilities,
@@ -1229,6 +1334,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       theme,
       toast,
       tourStepIndex,
+      updateCodeBlockShowLineNumbers,
+      updateCodeBlockTheme,
+      updateCodeBlockWrapLongLines,
       updateContextWindowField,
       updateLanguage,
       updateModelBoolField,

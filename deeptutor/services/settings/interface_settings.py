@@ -16,6 +16,9 @@ DEFAULT_UI_SETTINGS: dict[str, Any] = {
     # "snow" is the pure-white neutral theme, shown as "Default" in the UI.
     "theme": "snow",
     "language": "en",
+    "code_block_theme": "oneDark",
+    "code_block_show_line_numbers": False,
+    "code_block_wrap_long_lines": False,
 }
 
 
