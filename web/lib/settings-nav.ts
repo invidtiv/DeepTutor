@@ -23,7 +23,14 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { ClaudeGlyph, CodexGlyph } from "@/components/agents/agent-icons";
+import {
+  ClaudeGlyph,
+  CodexGlyph,
+  GeminiGlyph,
+  KimiGlyph,
+  MimoGlyph,
+  OpencodeGlyph,
+} from "@/components/agents/agent-icons";
 import type { ServiceName } from "@/components/settings/SettingsContext";
 
 /**
@@ -227,6 +234,54 @@ const AGENT_CHILDREN: SettingsLeaf[] = [
     tile: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
     adminOnly: true,
   },
+  {
+    key: "agent-gemini",
+    href: "/settings/agents/gemini",
+    label: { zh: "Gemini CLI", en: "Gemini CLI" },
+    blurb: {
+      zh: "DeepTutor 调用本机 Gemini CLI 时的模型与运行参数。",
+      en: "Model and run params for the local Gemini CLI.",
+    },
+    icon: GeminiGlyph as unknown as LucideIcon,
+    tile: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+    adminOnly: true,
+  },
+  {
+    key: "agent-kimi",
+    href: "/settings/agents/kimi",
+    label: { zh: "Kimi CLI", en: "Kimi CLI" },
+    blurb: {
+      zh: "DeepTutor 调用本机 Kimi CLI 时的模型与运行参数。",
+      en: "Model and run params for the local Kimi CLI.",
+    },
+    icon: KimiGlyph as unknown as LucideIcon,
+    tile: "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
+    adminOnly: true,
+  },
+  {
+    key: "agent-opencode",
+    href: "/settings/agents/opencode",
+    label: { zh: "opencode", en: "opencode" },
+    blurb: {
+      zh: "DeepTutor 调用本机 opencode 时的模型、推理强度与运行参数。",
+      en: "Model, reasoning effort, and run params for the local opencode.",
+    },
+    icon: OpencodeGlyph as unknown as LucideIcon,
+    tile: "bg-neutral-500/10 text-neutral-700 dark:text-neutral-300",
+    adminOnly: true,
+  },
+  {
+    key: "agent-mimo",
+    href: "/settings/agents/mimo",
+    label: { zh: "MiMo Code", en: "MiMo Code" },
+    blurb: {
+      zh: "DeepTutor 调用本机 MiMo Code 时的模型、推理强度与运行参数。",
+      en: "Model, reasoning effort, and run params for the local MiMo Code.",
+    },
+    icon: MimoGlyph as unknown as LucideIcon,
+    tile: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+    adminOnly: true,
+  },
 ];
 
 export const SETTINGS_CATEGORIES: SettingsCategory[] = [
@@ -333,6 +388,10 @@ const STORAGE_PATHS: Record<string, string> = {
   "/settings/memory": "data/user/settings/main.yaml",
   "/settings/agents/claude-code": "data/user/settings/subagent.json",
   "/settings/agents/codex": "data/user/settings/subagent.json",
+  "/settings/agents/gemini": "data/user/settings/subagent.json",
+  "/settings/agents/kimi": "data/user/settings/subagent.json",
+  "/settings/agents/opencode": "data/user/settings/subagent.json",
+  "/settings/agents/mimo": "data/user/settings/subagent.json",
 };
 
 export function storagePathFor(pathname: string): string | null {

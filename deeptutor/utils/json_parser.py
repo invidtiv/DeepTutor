@@ -84,6 +84,17 @@ def parse_json_response(
     except (json.JSONDecodeError, TypeError) as parse_error:
         log.debug(f"Direct JSON parse failed: {parse_error}")
 
+    # Prefer raw_decode before repair so trailing brace-prose cannot become a wrapping array.
+    if isinstance(extracted_response, str):
+        stripped = extracted_response.lstrip()
+        for idx, ch in enumerate(stripped):
+            if ch in "{[":
+                try:
+                    parsed, _end = json.JSONDecoder().raw_decode(stripped[idx:])
+                    return parsed
+                except json.JSONDecodeError:
+                    break
+
     # Strategy 2: Try json-repair if available
     if repair_json is None:
         log.warning("json-repair library not installed, cannot repair malformed JSON")

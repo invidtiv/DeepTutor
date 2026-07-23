@@ -38,10 +38,11 @@ def extract_code_block(text: str, language: str = "") -> str:
     If *language* is given the block must start with that tag;
     otherwise any triple-backtick fence is accepted.
     """
+    # Closing fence may sit on the same line as the last content line.
     if language:
-        pattern = rf"```{re.escape(language)}\s*\n([\s\S]*?)\n```"
+        pattern = rf"```{re.escape(language)}\s*\n([\s\S]*?)\n?```"
     else:
-        pattern = r"```[A-Za-z]*\s*\n([\s\S]*?)\n```"
+        pattern = r"```[A-Za-z]*\s*\n([\s\S]*?)\n?```"
     match = re.search(pattern, text or "", re.IGNORECASE)
     if match:
         return match.group(1).strip()

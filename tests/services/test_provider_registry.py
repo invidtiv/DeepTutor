@@ -23,3 +23,7 @@ def test_atlascloud_provider_aliases_and_base_detection() -> None:
     assert find_by_name("atlas_cloud") == spec
     assert find_by_name("atlas") == spec
     assert find_gateway(api_base="https://api.atlascloud.ai/v1") == spec
+
+
+def test_openai_codex_is_not_detected_from_api_base() -> None:
+    assert find_gateway(api_base="https://codex.example.com/v1") is None

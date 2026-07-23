@@ -116,3 +116,15 @@ class TestSafeJsonLoads:
 
     def test_explicit_none_fallback(self) -> None:
         assert safe_json_loads("bad", fallback=None) is None
+
+
+class TestParseJsonResponseTrailingProse:
+    def test_trailing_brace_prose_keeps_object(self) -> None:
+        raw = '{"chapters":[{"title":"Intro"}]} note: see {schema}'
+        result = parse_json_response(raw)
+        assert result == {"chapters": [{"title": "Intro"}]}
+
+    def test_trailing_brace_prose_keeps_array(self) -> None:
+        raw = '[{"id":1},{"id":2}] trailing {x}'
+        result = parse_json_response(raw, fallback=None)
+        assert result == [{"id": 1}, {"id": 2}]
